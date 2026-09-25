@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.tsbuildinfo
+reference/
+.next/
+out/
+next-env.d.ts
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+.data/
+.env
+
+# Python
+__pycache__/
+*.pyc
+.env.sepolia

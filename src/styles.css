@@ -1,0 +1,29 @@
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #08090B; color: #EDEEF0; font-family: 'Geist', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: #EDEEF0; text-decoration: none; } a:hover { color: #6E8CFF; }
+  button { font-family: inherit; }
+  input[type=range] { accent-color: #EDEEF0; }
+  :focus-visible { outline: 2px solid #6E8CFF; outline-offset: 2px; }
+  ::selection { background: rgba(110,140,255,.35); }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+.hover-0:hover {color: #EDEEF0 !important;border-color: #EDEEF0 !important;}
+.hover-1:hover {background: rgba(255,255,255,.06) !important;color: #EDEEF0 !important;}
+.hover-2:hover {background: #D4D5D9 !important;border-color: #D4D5D9 !important;}
+.hover-3:hover {background: #1E2127 !important;}
+.hover-4:hover {background: #1E2127 !important;}
+.hover-5:hover {background: #1E2127 !important;}
+.hover-6:hover {background: #1E2127 !important;}
+.hover-7:hover {background: #D4D5D9 !important;border-color: #D4D5D9 !important;}
+.hover-8:hover {background: #1E2127 !important;}
+.hover-9:hover {background: #1E2127 !important;}
+.hover-10:hover {background: #1E2127 !important;}
+.hover-11:hover {background: #1E2127 !important;}
+.hover-12:hover {background: #D4D5D9 !important;border-color: #D4D5D9 !important;}
+.hover-13:hover {background: #1E2127 !important;}
+.hover-14:hover {background: #D4D5D9 !important;border-color: #D4D5D9 !important;}
+.hover-15:hover {background: rgba(237,238,240,.14) !important;}

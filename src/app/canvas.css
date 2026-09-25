@@ -1,0 +1,533 @@
+/* ========================================================================== */
+/* GPU VTEC - the pipeline canvas                                             */
+/*                                                                            */
+/* A node network, not a diagram: dark ground, thin wires, small technical     */
+/* modules, and one travelling agent. Additive - it defines its own tokens and */
+/* its own `vtec-canvas*` scope, and overrides nothing in dashboard.css.       */
+/* ========================================================================== */
+
+:root {
+  --vtec-canvas-bg: #060608;
+  --vtec-grid-dot: #1b1b21;
+  --vtec-grid-line: #131318;
+
+  --vtec-module-bg: rgba(15, 15, 18, 0.92);
+  --vtec-module-border: #2a2a31;
+  --vtec-module-rule: #212128;
+
+  /* The one saturated colour in the system. Live work, and nothing else. */
+  --vtec-accent: #4de3ff;
+  --vtec-accent-soft: rgba(77, 227, 255, 0.14);
+  --vtec-accent-ink: #04121a;
+
+  --vtec-wire: #26262d;
+  --vtec-wire-done: #39566a;
+  --vtec-wire-dead: #2a2226;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not(.dark) {
+    --vtec-canvas-bg: #f4f4f6;
+    --vtec-grid-dot: #dcdce2;
+    --vtec-grid-line: #e6e6ea;
+    --vtec-module-bg: rgba(255, 255, 255, 0.94);
+    --vtec-module-border: #d6d6dc;
+    --vtec-module-rule: #e4e4e9;
+    --vtec-accent: #0b8fb0;
+    --vtec-accent-soft: rgba(11, 143, 176, 0.12);
+    --vtec-accent-ink: #ffffff;
+    --vtec-wire: #cdcdd4;
+    --vtec-wire-done: #93aebd;
+    --vtec-wire-dead: #ddd2d5;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Shell                                                                       */
+/* -------------------------------------------------------------------------- */
+
+.vtec-canvas-shell {
+  position: relative;
+  /* Escapes the page gutter only. The result page widens itself for this tab,
+     so there is no 100vw trick here and therefore no scrollbar overflow. */
+  margin-inline: -1.5rem;
+  /* --vtec-canvas-top is measured and published by PipelineTab; the fallback
+     covers the first paint. The 78px is the legend row and page gutter below. */
+  height: clamp(
+    520px,
+    calc(100vh - var(--vtec-canvas-top, 300px) - 78px),
+    1180px
+  );
+  overflow: hidden;
+  border-block: 1px solid var(--border);
+  background: var(--vtec-canvas-bg);
+  contain: layout paint;
+}
+.vtec-canvas-shell:fullscreen {
+  margin-inline: 0;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
+}
+@media (min-width: 768px) {
+  .vtec-canvas-shell {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+}
+
+.vtec-canvas {
+  position: absolute;
+  inset: 0;
+}
+.vtec-canvas .react-flow__attribution {
+  display: none;
+}
+.vtec-canvas .react-flow__node {
+  cursor: pointer;
+}
+.vtec-canvas .react-flow__node.dragging {
+  cursor: grabbing;
+}
+.vtec-canvas .react-flow__pane {
+  cursor: grab;
+}
+.vtec-canvas .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Modules                                                                     */
+/* -------------------------------------------------------------------------- */
+
+.vtec-module {
+  border-color: var(--vtec-module-border);
+  background: var(--vtec-module-bg);
+  backdrop-filter: blur(3px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  transition:
+    opacity 260ms ease,
+    border-color 260ms ease,
+    box-shadow 260ms ease,
+    transform 260ms ease;
+}
+
+.vtec-module[data-status="queued"],
+.vtec-module[data-status="skipped"] {
+  border-style: dashed;
+  opacity: 0.55;
+}
+.vtec-module[data-status="compiling"],
+.vtec-module[data-status="processing"] {
+  border-color: color-mix(in oklab, var(--vtec-accent) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--vtec-accent) 18%, transparent);
+}
+.vtec-module[data-status="accepted"] {
+  border-color: color-mix(in oklab, var(--success) 55%, transparent);
+}
+.vtec-module[data-status="rejected"] {
+  border-color: color-mix(in oklab, var(--warning) 42%, transparent);
+}
+.vtec-module[data-status="failed"] {
+  border-color: color-mix(in oklab, var(--danger) 50%, transparent);
+}
+.vtec-module[data-status="published"] {
+  border-color: color-mix(in oklab, var(--info) 45%, transparent);
+}
+
+.vtec-module[data-emphasis="true"] {
+  border-width: 1.5px;
+}
+.vtec-module[data-chosen="true"] {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--vtec-accent) 30%, transparent),
+    0 0 26px -6px color-mix(in oklab, var(--vtec-accent) 40%, transparent);
+}
+.vtec-module[data-active="true"] {
+  border-color: var(--vtec-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--vtec-accent) 45%, transparent),
+    0 0 34px -8px color-mix(in oklab, var(--vtec-accent) 60%, transparent);
+  transform: translateY(-1px);
+}
+.vtec-module[data-inspected="true"] {
+  border-color: var(--foreground);
+}
+.vtec-module[data-dimmed="true"] {
+  opacity: 0.1;
+  pointer-events: none;
+}
+.vtec-module:hover {
+  border-color: color-mix(
+    in oklab,
+    var(--foreground) 45%,
+    var(--vtec-module-border)
+  );
+}
+
+.vtec-module-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--vtec-module-rule);
+  border-radius: 5px;
+  color: var(--muted-foreground);
+}
+.vtec-module[data-active="true"] .vtec-module-icon,
+.vtec-module[data-chosen="true"] .vtec-module-icon {
+  color: var(--vtec-accent);
+  border-color: color-mix(in oklab, var(--vtec-accent) 40%, transparent);
+}
+
+/* The one small-caps label style the whole canvas uses. */
+.vtec-kicker {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* Ports. Visible, so the modules read as patchable; never connectable. */
+.vtec-canvas .react-flow__handle.vtec-port {
+  width: 7px;
+  height: 7px;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--vtec-module-border);
+  border-radius: 2px;
+  background: var(--vtec-canvas-bg);
+  pointer-events: none;
+}
+.vtec-module[data-active="true"] .vtec-port,
+.vtec-module[data-status="published"] .vtec-port {
+  border-color: color-mix(in oklab, var(--vtec-accent) 55%, transparent);
+  background: var(--vtec-accent);
+}
+
+/* NORMAL to VTEC. */
+.vtec-engage-track {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--vtec-module-rule);
+}
+.vtec-engage-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 22%;
+  border-radius: 2px;
+  background: var(--muted-foreground);
+  transition:
+    width 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 900ms ease;
+}
+.vtec-engage-fill.is-engaged {
+  width: 100%;
+  background: var(--vtec-accent);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Wires                                                                       */
+/* -------------------------------------------------------------------------- */
+
+.vtec-wire .react-flow__edge-path {
+  stroke: var(--vtec-wire);
+  stroke-width: 1.25;
+  transition:
+    stroke 300ms ease,
+    stroke-width 300ms ease;
+}
+.vtec-wire[data-tone="active"] .react-flow__edge-path {
+  stroke: var(--vtec-accent);
+  stroke-width: 2;
+}
+.vtec-wire[data-tone="done"] .react-flow__edge-path {
+  stroke: var(--vtec-wire-done);
+  stroke-width: 1.5;
+}
+.vtec-wire[data-tone="dead"] .react-flow__edge-path {
+  stroke: var(--vtec-wire-dead);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 5;
+}
+.vtec-wire[data-dimmed="true"] {
+  opacity: 0.12;
+}
+
+/* The travelling pulse: a dash offset animated on the compositor, so a live
+   graph puts nothing on the main thread. */
+.vtec-wire-pulse {
+  stroke: var(--vtec-accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 16 260;
+  filter: drop-shadow(
+    0 0 4px color-mix(in oklab, var(--vtec-accent) 60%, transparent)
+  );
+  animation: vtec-wire-travel 1.1s linear infinite;
+}
+@keyframes vtec-wire-travel {
+  from {
+    stroke-dashoffset: 276;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Agent                                                                       */
+/* -------------------------------------------------------------------------- */
+
+.vtec-agent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 12;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.vtec-agent-core {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--vtec-accent-ink);
+  background: var(--vtec-accent);
+  box-shadow: 0 0 18px -2px
+    color-mix(in oklab, var(--vtec-accent) 75%, transparent);
+}
+.vtec-agent-halo {
+  position: absolute;
+  inset: -6px;
+  border: 1px solid color-mix(in oklab, var(--vtec-accent) 45%, transparent);
+  border-radius: 10px;
+  animation: vtec-agent-breathe 1.6s ease-in-out infinite;
+}
+.vtec-agent[data-phase="return"] .vtec-agent-core {
+  background: var(--muted-foreground);
+  box-shadow: none;
+}
+.vtec-agent[data-phase="return"] .vtec-agent-halo {
+  opacity: 0.25;
+}
+.vtec-agent[data-phase="select"] .vtec-agent-core {
+  box-shadow: 0 0 26px 0 color-mix(in oklab, var(--vtec-accent) 85%, transparent);
+}
+@keyframes vtec-agent-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.22);
+    opacity: 0.25;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* HUD                                                                         */
+/* -------------------------------------------------------------------------- */
+
+.vtec-hud {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--vtec-canvas-bg) 86%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.9);
+}
+
+.vtec-hud-title {
+  top: 14px;
+  left: 14px;
+  gap: 4px;
+  max-width: 260px;
+}
+.vtec-hud-status {
+  top: 14px;
+  right: 14px;
+  gap: 5px;
+  min-width: 250px;
+}
+.vtec-hud-controls {
+  bottom: 14px;
+  left: 14px;
+  gap: 10px;
+  width: min(560px, calc(100% - 28px));
+}
+.vtec-hud-inspector {
+  top: 50%;
+  right: 14px;
+  width: 268px;
+  max-height: calc(100% - 210px);
+  overflow: auto;
+  transform: translateY(-50%);
+}
+
+.vtec-run-button {
+  border: 0;
+  color: var(--vtec-accent-ink);
+  background: var(--vtec-accent);
+}
+.vtec-run-button:hover {
+  background: color-mix(in oklab, var(--vtec-accent) 82%, white);
+}
+.vtec-toggle-on {
+  border-color: color-mix(
+    in oklab,
+    var(--vtec-accent) 55%,
+    transparent
+  ) !important;
+  color: var(--vtec-accent) !important;
+}
+
+.vtec-speed {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.vtec-speed button {
+  padding: 5px 8px;
+  border: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+}
+.vtec-speed button + button {
+  border-left: 1px solid var(--border);
+}
+.vtec-speed button.is-on {
+  color: var(--vtec-accent);
+  background: var(--vtec-accent-soft);
+}
+
+.vtec-scrub {
+  flex: 1;
+  min-width: 0;
+  height: 3px;
+  cursor: pointer;
+  accent-color: var(--vtec-accent);
+}
+
+.vtec-pin {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+}
+.vtec-pin:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.vtec-pin:not(:disabled):hover {
+  color: var(--foreground);
+}
+
+.vtec-raw summary::-webkit-details-marker {
+  display: none;
+}
+.vtec-raw[open] summary {
+  color: var(--foreground);
+}
+
+/* React Flow's own panels, restyled and kept out of each other's way. */
+.vtec-canvas .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+.vtec-canvas .react-flow__panel.vtec-controls {
+  bottom: 136px;
+}
+.vtec-canvas .react-flow__controls-button {
+  width: 24px;
+  height: 24px;
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  fill: currentColor;
+  background: var(--vtec-module-bg);
+}
+.vtec-canvas .react-flow__controls-button:hover {
+  background: var(--accent);
+}
+.vtec-canvas .react-flow__minimap.vtec-minimap {
+  right: 14px;
+  bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--vtec-canvas-bg) 90%, transparent);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Small screens: the graph keeps the room, the panels get out of the way.      */
+/* -------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .vtec-canvas-shell {
+    height: clamp(
+      440px,
+      calc(100vh - var(--vtec-canvas-top, 260px) - 96px),
+      900px
+    );
+  }
+  .vtec-hud-status,
+  .vtec-canvas .react-flow__minimap.vtec-minimap {
+    display: none;
+  }
+  .vtec-hud-inspector {
+    top: auto;
+    right: 14px;
+    bottom: 14px;
+    left: auto;
+    width: 210px;
+    max-height: 190px;
+    transform: none;
+  }
+  .vtec-hud-controls {
+    width: calc(100% - 238px);
+  }
+  .vtec-canvas .react-flow__panel.vtec-controls {
+    bottom: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vtec-wire-pulse,
+  .vtec-agent-halo {
+    animation: none;
+  }
+  .vtec-engage-fill,
+  .vtec-module {
+    transition: none;
+  }
+}
