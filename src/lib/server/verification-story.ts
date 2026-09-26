@@ -1,4 +1,5 @@
 import "server-only";
+import { MIN_GAIN_PCT } from "@/lib/rules";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { findTrack } from "@/lib/catalog";
@@ -119,7 +120,7 @@ function checksOf(r: VerifyReport, lines: string[], tolerance: number): Check[] 
         ? `matches the baseline within ${tolerance} on every seed${r.maxError != null ? ` (largest difference ${r.maxError.toExponential(1)})` : ""}`
         : "different output from the baseline on at least one seed",
     },
-    { label: "At least 3% faster", ok: gain >= 3, detail: `${gain.toFixed(1)}% faster by median time` },
+    { label: `At least ${MIN_GAIN_PCT}% faster`, ok: gain >= MIN_GAIN_PCT, detail: `${gain.toFixed(2)}% faster by median time` },
     { label: "Beyond the noise", ok: gain > 2 * r.noisePct, detail: `${gain.toFixed(1)}% gain vs ±${r.noisePct}% run-to-run noise (needs more than twice it)` },
   ];
   if (runs) {

@@ -41,10 +41,7 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
   }, [check]);
 
   const buy = async () => {
-    if (!row?.listing?.royalties) {
-      toast.error("This listing predates recoverable royalties and must be relisted.");
-      return;
-    }
+    if (!row?.listing) return;
     setBusy("buy");
     const id = toast.loading("Confirm the purchase in Slush…");
     try {

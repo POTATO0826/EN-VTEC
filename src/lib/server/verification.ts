@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { HARNESS_ENABLED, harnessRunning, PLATFORM_CODE, PLATFORM_SESSION, runHarness } from "./harness";
 import { findTrack } from "@/lib/catalog";
 import { hasBuild, load, update, type Submission, type VerifyReport } from "./store";
-import { adminAddress, adminReady, distributeFee, drawSeed, listKernel, refundFee } from "./sui";
+import { adminAddress, adminReady, distributeFee, drawSeed, listKernel, refundFee, refundStake } from "./sui";
 
 /**
  * Independent verification of a submission.
@@ -142,6 +142,8 @@ export async function kick() {
     (a) => a.sessionId === PLATFORM_SESSION && (a.status === "approved" || a.status === "committed"),
   );
   if (harnessJobs && !harnessRunning()) runHarness();
+  // Stake settlements and listings that failed after a decision.
+  await finishSettled();
 }
 
 /** Reveals open once every assigned verifier has committed. */
@@ -222,30 +224,85 @@ export async function tally(submissionId: string, revealedId?: string) {
     }
   }
 
-  // Verified: put it on sale. Buyers pay 70% to the tuner, 20% to the
-  // lineage (whoever held the best verified result on this track before) and
-  // 10% to the platform, and get a License, all in one transaction.
-  if (outcome === "verified" && adminReady()) {
-    try {
-      const fresh = await load();
-      const tuner = fresh.payouts[sub.sessionId] ?? adminAddress();
-      const previous = fresh.submissions
-        .filter((s) => s.trackId === sub.trackId && s.status === "verified" && s.id !== sub.id && s.listing)
-        .sort((a, b) => (b.speedup ?? 0) - (a.speedup ?? 0))[0];
-      const lineage = previous ? (fresh.payouts[previous.sessionId] ?? tuner) : tuner;
-      const listed = await listKernel({
-        challenge: sub.trackId,
-        kernel: sub.id,
-        version: sub.buildSha256,
-        tuner,
-        lineage,
-      });
-      await update((d) => {
-        const s = d.submissions.find((x) => x.id === submissionId);
-        if (s) s.listing = { id: listed.listingId, digest: listed.digest, lineage, royalties: listed.royalties };
-      });
-    } catch (e) {
-      console.warn("[verify] listing failed:", e instanceof Error ? e.message : e);
-    }
+  await settleStake(submissionId);
+  if (outcome === "verified") await publish(submissionId);
+}
+
+/**
+ * A stake (no World ID) comes back if the kernel verified, i.e. it was
+ * correct and clearly faster on the verifiers; otherwise it stays in the
+ * platform wallet.
+ */
+async function settleStake(submissionId: string) {
+  const data = await load();
+  const sub = data.submissions.find((s) => s.id === submissionId);
+  const approval = data.approvals.find((a) => a.id === sub?.approvalId);
+  if (!sub || !approval?.stake || approval.stake.settled || !adminReady()) return;
+  if (sub.status !== "verified" && sub.status !== "rejected") return;
+  const refund = sub.status === "verified";
+  try {
+    const res = refund ? await refundStake(approval.stake.payer, approval.stake.amountMist) : null;
+    await update((d) => {
+      const a = d.approvals.find((x) => x.id === approval.id);
+      if (a?.stake) a.stake.settled = { outcome: refund ? "refunded" : "slashed", digest: res?.digest ?? null, at: new Date().toISOString() };
+    });
+  } catch (e) {
+    console.warn("[verify] stake settlement failed:", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * Verified: put it on sale. Buyers pay 70% to the tuner, 20% to the lineage
+ * (whoever held the best verified result on this track before) and 10% to
+ * the platform, and get a License, all in one transaction.
+ */
+async function publish(submissionId: string) {
+  const fresh = await load();
+  const sub = fresh.submissions.find((s) => s.id === submissionId);
+  if (!sub || sub.status !== "verified" || sub.listing || !adminReady()) return;
+  try {
+    const tuner = fresh.payouts[sub.sessionId] ?? adminAddress();
+    const previous = fresh.submissions
+      .filter((s) => s.trackId === sub.trackId && s.status === "verified" && s.id !== sub.id && s.listing)
+      .sort((a, b) => (b.speedup ?? 0) - (a.speedup ?? 0))[0];
+    const lineage = previous ? (fresh.payouts[previous.sessionId] ?? tuner) : tuner;
+    const listed = await listKernel({
+      challenge: sub.trackId,
+      kernel: sub.id,
+      version: sub.buildSha256,
+      tuner,
+      lineage,
+    });
+    await update((d) => {
+      const s = d.submissions.find((x) => x.id === submissionId);
+      if (s) s.listing = { id: listed.listingId, digest: listed.digest, lineage, royalties: listed.royalties };
+    });
+  } catch (e) {
+    console.warn("[verify] listing failed:", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * Finishes what failed after a decision (a Sui call timed out, the contract
+ * didn't match): returns or slashes a stake, lists a verified kernel. Each
+ * submission is retried at most once a minute.
+ */
+export async function finishSettled() {
+  if (!adminReady()) return;
+  const data = await load();
+  const now = Date.now();
+  for (const s of data.submissions) {
+    if (s.status !== "verified" && s.status !== "rejected") continue;
+    if (s.retryAt && now - Date.parse(s.retryAt) < 60_000) continue;
+    const approval = data.approvals.find((a) => a.id === s.approvalId);
+    const needsStake = !!approval?.stake && !approval.stake.settled;
+    const needsListing = s.status === "verified" && !s.listing;
+    if (!needsStake && !needsListing) continue;
+    await update((d) => {
+      const x = d.submissions.find((y) => y.id === s.id);
+      if (x) x.retryAt = new Date().toISOString();
+    });
+    if (needsStake) await settleStake(s.id);
+    if (needsListing) await publish(s.id);
   }
 }

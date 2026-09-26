@@ -56,7 +56,26 @@ function flag(name: string) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-const URL_BASE = (flag("url") ?? process.env.VTEC_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
+/**
+ * Which server a pairing code belongs to, saved by `pair`. Later commands
+ * with that code (submit, verify) go to the same server without --url, so a
+ * code paired on the deployed site never lands on a local server by mistake.
+ */
+const SERVERS = path.join(os.homedir(), ".vtec", "servers.json");
+function savedServers(): Record<string, string> {
+  try {
+    return JSON.parse(readFileSync(SERVERS, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+const URL_BASE = (
+  flag("url") ??
+  process.env.VTEC_URL ??
+  (code ? savedServers()[code.toUpperCase()] : undefined) ??
+  "http://127.0.0.1:3000"
+).replace(/\/$/, "");
 
 function fail(message: string): never {
   console.error(`✗ ${message}`);
@@ -332,7 +351,8 @@ async function call(route: string, body?: unknown) {
 
 async function post(route: string, body: unknown) {
   const { ok, status, data } = await call(route, body);
-  if (!ok) fail(String(data.detail ?? data.error ?? `HTTP ${status}`));
+  // Name the server: a code paired on another server fails here as "unknown".
+  if (!ok) fail(`${String(data.detail ?? data.error ?? `HTTP ${status}`)} (server: ${URL_BASE})`);
   return data;
 }
 
@@ -345,7 +365,9 @@ async function pair() {
   const gpus = detectGpus();
   const info = { code, hostname: os.hostname(), os: `${os.type()} ${os.release()}`, cpu: cpuName(), gpus };
   await post("/api/agent/hello", info);
-  console.log(`✓ Paired ${info.hostname}`);
+  mkdirSync(path.dirname(SERVERS), { recursive: true });
+  writeFileSync(SERVERS, JSON.stringify({ ...savedServers(), [code.toUpperCase()]: URL_BASE }, null, 2));
+  console.log(`✓ Paired ${info.hostname} with ${URL_BASE}`);
   for (const gpu of gpus) {
     console.log(`  GPU  ${gpu.name}${gpu.memoryMb ? ` · ${gpu.memoryMb} MB` : ""}${gpu.driver ? ` · driver ${gpu.driver}` : ""}`);
   }
@@ -508,11 +530,13 @@ async function verifyOne(job: Job, runs: number) {
     const noisePct = ((Math.max(...base) - Math.min(...base)) / baselineMedianMs) * 100;
     const speedup = baselineMedianMs / candidateMedianMs;
     const gainPct = (speedup - 1) * 100;
-    // Faster means clearly faster: at least 3%, more than twice the noise, and
+    // Faster means clearly faster: at least 0.1%, more than twice the noise, and
     // even the slowest candidate run beats the fastest baseline run. The same
     // code on both sides can't pass this.
     const separated = Math.max(...cand) < Math.min(...base);
-    const pass = hashMatches && correct && gainPct >= 3 && gainPct > 2 * noisePct && separated;
+    // Same rule as src/lib/rules.ts: at least 0.1% faster, and clearly beyond the noise.
+    const MIN_GAIN_PCT = 0.1;
+    const pass = hashMatches && correct && gainPct >= MIN_GAIN_PCT && gainPct > 2 * noisePct && separated;
 
     report = {
       compatible: true, hardware, hashMatches, correct, runs,

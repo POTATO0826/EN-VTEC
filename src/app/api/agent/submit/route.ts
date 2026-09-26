@@ -18,8 +18,8 @@ function hashFiles(files: Record<string, string>) {
 
 // Called by the local agent after it ran a build. The submission is recorded
 // as PENDING: it only reaches the ranking once independent verifiers agree.
-// Needs a World ID approval with its process fee paid, for this session and track, and
-// each approval can be spent once.
+// Needs an approval for this session and track, spent once: either a World ID
+// approval with its process fee paid, or (without World ID) a stake.
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     code?: string;
@@ -64,16 +64,18 @@ export async function POST(request: Request) {
     if (!agent?.sessionId) return { error: "unknown_code" as const };
 
     const used = new Set(data.submissions.map((s) => s.approvalId));
-    const approval = data.approvals.find(
+    const open = data.approvals.filter(
       (a) =>
         a.sessionId === agent.sessionId &&
         a.trackId === track.id &&
         a.status === "approved" &&
         !used.has(a.id),
     );
-    if (!approval) return { error: "not_approved" as const };
-    // Legacy approvals (before the fee existed) can't be spent any more.
-    if (!approval.fee) return { error: "fee_unpaid" as const };
+    if (!open.length) return { error: "not_approved" as const };
+    // Spend one that's paid (fee, or stake without World ID); an unpaid one
+    // next to it must not hide it.
+    const approval = open.find((a) => (a.kind === "stake" ? !!a.stake : !!a.fee));
+    if (!approval) return { error: "fee_unpaid" as const };
 
     const id = `sub_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     data.submissions.push({
@@ -103,9 +105,9 @@ export async function POST(request: Request) {
   if ("error" in outcome) {
     const detail =
       outcome.error === "not_approved"
-        ? "Approve this submission with World ID on the track page first."
+        ? "Approve this submission on the track page first (World ID, or a stake)."
         : outcome.error === "fee_unpaid"
-          ? "Pay the process fee on the track page first."
+          ? "Pay the process fee or the stake on the track page first."
           : "Pair this agent from the Get started page first.";
     return Response.json({ error: outcome.error, detail }, { status: outcome.error === "unknown_code" ? 404 : 403 });
   }

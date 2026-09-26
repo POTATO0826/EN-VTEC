@@ -34,12 +34,23 @@ export type Approval = {
   id: string;
   sessionId: string;
   trackId: string;
-  kind: "worldid";
+  /** "worldid": World ID approval + process fee. "stake": no World ID, a stake instead. */
+  kind: "worldid" | "stake";
   action: string;
   status: "pending" | "approved";
   nullifier: string | null;
   /** The process fee, paid after the World ID approval. */
   fee: { digest: string; payer: string; amountMist: string } | null;
+  /**
+   * Without World ID: the stake sent to the platform wallet. Returned if the
+   * kernel verifies (correct and at least 0.1% faster), slashed otherwise.
+   */
+  stake?: {
+    digest: string;
+    payer: string;
+    amountMist: string;
+    settled?: { outcome: "refunded" | "slashed"; digest: string | null; at: string };
+  } | null;
   at: string;
 };
 
@@ -78,6 +89,8 @@ export type Submission = {
   tuneLog?: string[];
   /** On sale once verified: the shared Listing on Sui. */
   listing?: { id: string; digest: string; lineage: string; royalties?: string } | null;
+  /** Last time finishSettled() retried this one's stake settlement or listing. */
+  retryAt?: string;
   at: string;
   settledAt: string | null;
 };

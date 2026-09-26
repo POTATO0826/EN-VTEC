@@ -4,6 +4,7 @@ import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
+import { normalizeSuiAddress } from "@mysten/sui/utils";
 import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 import {
   assertNoRecoveryInFlight,
@@ -40,6 +41,10 @@ export const sui = {
   ),
   priceMist: BigInt(
     Math.round(Number(process.env.NEXT_PUBLIC_LICENSE_SUI ?? "0.1") * 1e9),
+  ),
+  /** Staked by a tuner who publishes without World ID. */
+  stakeMist: BigInt(
+    Math.round(Number(process.env.NEXT_PUBLIC_STAKE_SUI ?? "0.0001") * 1e9),
   ),
 };
 
@@ -83,6 +88,33 @@ const Listed = bcs.struct("Listed", {
   price: bcs.u64(),
   royalties: bcs.Address,
 });
+/** Listed as emitted by the market contract before royalty recovery. */
+const LegacyListed = bcs.struct("Listed", {
+  listing: bcs.Address,
+  challenge: bcs.vector(bcs.u8()),
+  kernel: bcs.vector(bcs.u8()),
+  tuner: bcs.Address,
+  price: bcs.u64(),
+});
+
+/**
+ * Which market::list the deployed package has. The source (move/vtec) added
+ * royalty identities and a Challenge object, but the package on chain may
+ * predate that until it's republished: calling the new signature against it
+ * aborts, so nothing would ever be listed. Read once from the chain.
+ */
+let marketAbi: Promise<"royalty" | "legacy"> | null = null;
+export function deployedMarket() {
+  marketAbi ??= client
+    .getMoveFunction({ packageId: sui.packageId, moduleName: "market", name: "list" })
+    .then((r) => ((r.function.parameters?.length ?? 0) >= 10 ? ("royalty" as const) : ("legacy" as const)))
+    .catch(() => {
+      marketAbi = null; // try again next time
+      return "royalty" as const;
+    });
+  return marketAbi;
+}
+
 const Challenge = bcs.struct("Challenge", {
   id: bcs.Address,
   track: bcs.vector(bcs.u8()),
@@ -287,6 +319,39 @@ export function distributeFee(key: string, recipients: string[]) {
   );
 }
 
+/**
+ * A stake: this transaction, sent by `payer`, moved at least the stake in SUI
+ * into the platform wallet. Read from the chain, never taken from the browser.
+ */
+export async function checkStake(digest: string, payer: string) {
+  const res = await client.waitForTransaction({
+    digest,
+    include: { balanceChanges: true, transaction: true },
+    timeout: 30_000,
+  });
+  if (!res.Transaction?.status.success)
+    throw new Error("Transaction failed on-chain.");
+  const sender = normalizeSuiAddress(res.Transaction.transaction.sender ?? "0x0");
+  if (sender !== normalizeSuiAddress(payer))
+    throw new Error("That transaction was sent from a different wallet.");
+  const platform = normalizeSuiAddress(adminAddress());
+  const received = res.Transaction.balanceChanges
+    .filter((c) => c.coinType.endsWith("::sui::SUI") && normalizeSuiAddress(c.address) === platform)
+    .reduce((n, c) => n + BigInt(c.amount), 0n);
+  if (received < sui.stakeMist)
+    throw new Error(
+      `The platform wallet received ${received} MIST; the stake is ${sui.stakeMist}.`,
+    );
+  return { payer: sender, amountMist: String(received) };
+}
+
+/** The staked kernel verified: the platform wallet sends the stake back. */
+export function refundStake(to: string, amountMist: string) {
+  return run((tx) => {
+    tx.transferObjects([tx.splitCoins(tx.gas, [BigInt(amountMist)])[0]], to);
+  });
+}
+
 /** Nobody could verify it: the fee goes back to whoever paid. */
 export function refundFee(key: string) {
   return run((tx) =>
@@ -308,7 +373,26 @@ export async function listKernel(input: {
   version: string;
   tuner: string;
   lineage: string;
-}) {
+}): Promise<{ listingId: string; digest: string; royalties?: string }> {
+  if ((await deployedMarket()) === "legacy") {
+    const res = await run((tx) =>
+      tx.moveCall({
+        target: `${sui.packageId}::market::list`,
+        arguments: [
+          tx.object(sui.adminCapId),
+          tx.pure.vector("u8", keyBytes(input.challenge)),
+          tx.pure.vector("u8", keyBytes(input.kernel)),
+          tx.pure.vector("u8", keyBytes(input.version)),
+          tx.pure.address(input.tuner),
+          tx.pure.address(input.lineage),
+          tx.pure.u64(sui.priceMist),
+        ],
+      }),
+    );
+    const listed = decode(res.events, "market::Listed", LegacyListed)[0];
+    if (!listed) throw new Error("Listing returned no id.");
+    return { listingId: listed.listing, digest: res.digest };
+  }
   return withRoyaltyLock(async () => {
     const state = await readRecovery();
     const tuner = ensureAccount(state, input.tuner);

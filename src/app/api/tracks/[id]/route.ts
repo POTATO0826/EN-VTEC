@@ -59,7 +59,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
         (a) => a.sessionId === sessionId && a.trackId === id && a.status === "approved" && !used.has(a.id),
       )
     : [];
-  const ready = open.find((a) => a.fee);
+  const ready = open.find((a) => a.fee || a.stake);
   const unpaid = open.find((a) => !a.fee && a.kind === "worldid");
   const verified = sessionId ? data.seats.some((s) => s.sessionId === sessionId) : false;
 
@@ -68,7 +68,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
     builds: buildsOf(id),
     verified,
     approval: ready
-      ? { id: ready.id, stage: "ready" as const }
+      ? { id: ready.id, stage: "ready" as const, mode: ready.kind }
       : unpaid
         ? { id: unpaid.id, stage: "needs_fee" as const }
         : null,

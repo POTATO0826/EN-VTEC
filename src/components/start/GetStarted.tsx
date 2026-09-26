@@ -18,7 +18,7 @@ import { useSessionId, useSessionStatus } from "@/lib/session";
 
 const CHOICES_KEY = "vtec.choices";
 
-type Choices = { device: Device | null; taskId: string | null };
+type Choices = { device: Device | null; taskId: string | null; skipWorldId?: boolean };
 
 function useChoices() {
   const [choices, setChoices] = React.useState<Choices>({ device: null, taskId: null });
@@ -50,7 +50,8 @@ export default function GetStarted() {
   const done = {
     1: !!choices.device,
     2: !!choices.taskId,
-    3: !!status?.seat && !!status?.humanPass,
+    // World ID is optional: skipping it means staking SUI on each kernel instead.
+    3: (!!status?.seat && !!status?.humanPass) || !!choices.skipWorldId,
     4: !!status?.agent,
   };
   const firstOpen = ([1, 2, 3, 4] as const).find((n) => !done[n]) ?? null;
@@ -103,15 +104,34 @@ export default function GetStarted() {
 
         <Step
           n={3}
-          title="Verify you're human (World ID → Sui)"
+          title="Verify you're human with World ID (optional)"
           state={stateOf(3)}
           summary={
             status?.seat ? (
               <span className="vtec-num">HumanPass · seat {status.seat.nullifier.slice(0, 10)}…</span>
+            ) : choices.skipWorldId ? (
+              <EditLink onClick={edit(3)}>Skipped · you stake {SUI.stakeSui} SUI per kernel instead</EditLink>
             ) : null
           }
         >
+          <p className="mb-4 max-w-xl text-sm text-muted-foreground">
+            Verify once here and you won&apos;t be asked again: each submission just needs the process fee. Without
+            World ID you can still publish: you stake {SUI.stakeSui} SUI on each kernel, returned if it verifies (correct and clearly
+            faster: at least 0.1%, beyond run-to-run noise), slashed if it doesn&apos;t.
+          </p>
           {sessionId ? <HumanPassSteps sessionId={sessionId} onDone={refresh} /> : null}
+          {!status?.seat ? (
+            <Button
+              variant="outline"
+              className="mt-4 rounded-full"
+              onClick={() => {
+                setChoices({ ...choices, skipWorldId: true });
+                setEditing(null);
+              }}
+            >
+              Skip: stake {SUI.stakeSui} SUI per kernel instead
+            </Button>
+          ) : null}
         </Step>
 
         <Step
@@ -129,7 +149,8 @@ export default function GetStarted() {
           <div>
             <p className="font-medium">You're set up.</p>
             <p className="text-sm text-muted-foreground">
-              {status?.agent?.gpus[0]?.name ?? choices.device?.name} · {task?.name} · verified human
+              {status?.agent?.gpus[0]?.name ?? choices.device?.name} · {task?.name} ·{" "}
+              {status?.seat ? "verified human" : `no World ID, ${SUI.stakeSui} SUI stake per kernel`}
             </p>
           </div>
           <Button asChild className="rounded-full px-5">

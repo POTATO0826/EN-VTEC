@@ -9,6 +9,7 @@ import { PageTitle } from "@/components/ui/step";
 import { CommandBlock } from "@/components/tuners/TrackView";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import { useSessionId, useSessionStatus } from "@/lib/session";
+import { useOrigin } from "@/lib/use-origin";
 
 type Report = {
   compatible: boolean;
@@ -159,6 +160,7 @@ function Job({
   onChange: () => void;
 }) {
   const sub = job.submission;
+  const origin = useOrigin();
   return (
     <div className="animate-in fade-in rounded-xl border border-border/60 bg-card/60 p-5 backdrop-blur-sm duration-300">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -195,7 +197,10 @@ function Job({
         ) : job.status === "approved" ? (
           <div className="flex flex-col gap-2">
             <p className="text-sm text-muted-foreground">Run this on your laptop. It takes a few minutes.</p>
-            <CommandBlock>bun agent/vtec-agent.ts verify {agentCode ?? "<CODE>"}</CommandBlock>
+            <CommandBlock>
+              bun agent/vtec-agent.ts verify {agentCode ?? "<CODE>"}
+              {origin ? ` --url ${origin}` : ""}
+            </CommandBlock>
           </div>
         ) : job.status === "committed" ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">

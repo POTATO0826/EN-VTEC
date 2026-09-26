@@ -10,3 +10,12 @@
 node_modules
 .next
 .git
+# Local tooling, not part of the web app.
+.venv
+.tools
+.vtec-runs
+move
+contracts
+tsconfig.tsbuildinfo
+# Every deploy starts with empty data (local seats, agents and runs stay local).
+.data
