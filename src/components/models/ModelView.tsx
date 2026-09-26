@@ -147,48 +147,62 @@ export default function ModelView({ model, initialWorkload }: { model: Model; in
             data-spin="-0.12"
           />
 
-          {/* Top left: the model and its summary. Fades out while a workload is zoomed in, so it never covers an orb. */}
+          {/*
+           * A band across the top: the model on the left, its facts as a row
+           * of cells on the right, inside the app's content width. It fades
+           * out while a workload is zoomed in, so it never covers an orb.
+           */}
           <div
-            className={`absolute top-6 left-4 max-w-[400px] transition-opacity duration-400 md:left-8 ${entry ? "pointer-events-none" : ""}`}
+            className={`absolute inset-x-0 top-0 transition-opacity duration-400 ${entry ? "pointer-events-none" : ""}`}
             style={{ opacity: entry ? 0 : 1 }}
           >
-            <Link href="/models" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
-              <ArrowLeftIcon className="size-3.5" /> All models
-            </Link>
-            <h6 className="m-0 mb-2 text-xs tracking-[0.18em] text-muted-foreground uppercase">
-              {model.vendor} · {model.params} · {model.active}
-            </h6>
-            <h1 className="m-0 mb-3 font-display text-[40px] leading-[1.05] font-extrabold tracking-[-0.02em] text-pretty">{model.name}</h1>
-            <p className="m-0 mb-4 text-[15px] text-pretty text-muted-foreground">{model.summary}</p>
-            <dl className="m-0 mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-border/60 bg-card/60 p-3 text-xs backdrop-blur-sm">
-              <dt className="text-muted-foreground">Weights</dt>
-              <dd className="vtec-num">
-                {model.quant} · {model.sizeGb} GB
-              </dd>
-              <dt className="text-muted-foreground">Context</dt>
-              <dd className="vtec-num">{model.contextK}K tokens</dd>
-              <dt className="text-muted-foreground">Runs on</dt>
-              <dd>{model.hardware}</dd>
-              <dt className="text-muted-foreground">License</dt>
-              <dd>{model.license}</dd>
-              <dt className="text-muted-foreground">Kernels</dt>
-              <dd>
-                {verifiedCount} of {WORKLOADS.length} workloads verified
-              </dd>
-            </dl>
-            {/* What each orb colour means, in plain words. */}
-            <dl className="m-0 flex flex-col gap-1.5 rounded-lg border border-border/60 bg-card/60 p-3 text-xs backdrop-blur-sm">
+            <div className="mx-auto grid w-full max-w-6xl gap-5 px-4 pt-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:px-8">
+              <div className="max-w-[560px]">
+                <Link href="/models" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                  <ArrowLeftIcon className="size-3.5" /> All models
+                </Link>
+                <h6 className="m-0 mb-1.5 text-xs tracking-[0.18em] text-muted-foreground uppercase">
+                  {model.vendor} · {model.params} · {model.active}
+                </h6>
+                <h1 className="m-0 mb-2 font-display text-[40px] leading-[1.05] font-extrabold tracking-[-0.02em] text-pretty">{model.name}</h1>
+                <p className="m-0 text-[15px] text-pretty text-muted-foreground">{model.summary}</p>
+              </div>
+              <dl className="m-0 hidden gap-px overflow-hidden rounded-lg border border-border/60 bg-border/60 text-xs backdrop-blur-sm md:mt-9 md:grid md:max-w-[620px] md:grid-cols-5">
+                {(
+                  [
+                    ["Weights", `${model.quant} · ${model.sizeGb} GB`, true],
+                    ["Context", `${model.contextK}K tokens`, true],
+                    ["Runs on", model.hardware, false],
+                    ["License", model.license, false],
+                    ["Kernels", `${verifiedCount} of ${WORKLOADS.length} workloads`, false],
+                  ] as [string, string, boolean][]
+                ).map(([k, v, mono]) => (
+                  <div key={k} className="bg-card/80 px-3 py-2.5">
+                    <dt className="text-[10px] tracking-[0.12em] text-muted-foreground uppercase">{k}</dt>
+                    <dd className={`mt-1 text-pretty ${mono ? "vtec-num" : ""}`}>{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
+
+          {/* What each orb colour means: one slim line along the bottom, the full meaning on hover. */}
+          <dl
+            className={`absolute inset-x-0 bottom-0 m-0 transition-opacity duration-400 ${entry ? "pointer-events-none" : ""}`}
+            style={{ opacity: entry ? 0 : 1 }}
+          >
+            <div className="mx-auto flex w-full max-w-6xl flex-wrap gap-x-6 gap-y-1.5 px-4 pb-5 text-xs md:px-8">
               {LEGEND.map(([status, title, meaning]) => (
-                <div key={status} className="flex items-baseline gap-2">
+                <div key={status} className="inline-flex items-baseline gap-2" title={meaning}>
                   <dt className="inline-flex items-center gap-1.5 whitespace-nowrap">
                     <span className="size-2 rounded-full" style={{ background: STATUS[status][0] }} />
                     <span className="text-[11px] tracking-[0.08em] uppercase" style={{ color: STATUS[status][0] }}>{title}</span>
                   </dt>
-                  <dd className="m-0 text-muted-foreground">{meaning}</dd>
+                  <dd className="m-0 text-muted-foreground">{meaning.split(":")[0].split(" (")[0]}</dd>
                 </div>
               ))}
-            </dl>
-          </div>
+            </div>
+          </dl>
         </div>
 
         {entry ? (
