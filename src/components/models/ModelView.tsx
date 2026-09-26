@@ -7,6 +7,7 @@ import { ArrowLeftIcon, ShoppingCartIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import GetKernelDialog, { type Purchasable } from "@/components/models/GetKernel";
+import RunPanel from "@/components/models/RunPanel";
 import SkillChart from "@/components/results/SkillChart";
 import { STATUS } from "@/components/results/status";
 import { modelEntry, sampleKernels, WORKLOADS, type KernelRow, type Model, type WorkloadId } from "@/lib/models";
@@ -233,6 +234,7 @@ export default function ModelView({ model, initialWorkload }: { model: Model; in
               </Button>
             </div>
             <SkillChart entry={entry} sample />
+            <RunPanel model={model} workloadId={entry.id as WorkloadId} />
           </aside>
         ) : null}
       </section>
