@@ -2,6 +2,7 @@ import "server-only";
 import { spawn } from "node:child_process";
 import { createWriteStream, mkdirSync } from "node:fs";
 import path from "node:path";
+import { DATA_DIR, dataPath } from "@/lib/server/data-dir";
 
 /**
  * The platform harness: when there aren't enough human verifiers, the
@@ -33,7 +34,7 @@ export function runHarness() {
   state.again = false;
 
   const root = process.cwd();
-  const logs = path.join(root, ".data");
+  const logs = DATA_DIR;
   mkdirSync(logs, { recursive: true });
   const log = createWriteStream(path.join(logs, "harness.log"), { flags: "a" });
   log.write(`\n=== ${new Date().toISOString()} platform harness\n`);

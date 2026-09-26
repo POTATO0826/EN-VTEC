@@ -289,7 +289,7 @@ export function buildSteps(d: Evidence, tx: (digest: string) => string): Step[] 
           id: "fee",
           state: "done",
           title: `Process fee · ${d.approval.fee.amountSui} SUI`,
-          summary: "Paid and held in the VTEC vault on Sui.",
+          summary: "Paid and held in the Opti-om vault on Sui.",
           link: { label: "Sui tx", href: tx(d.approval.fee.digest) },
         }
       : { id: "fee", state: "skipped", title: "Process fee", summary: "Skipped: no fee on this submission." },

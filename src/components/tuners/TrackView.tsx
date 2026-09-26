@@ -262,7 +262,7 @@ function FeePayment({ sessionId, approvalId, onDone }: { sessionId: string; appr
   return (
     <div className="flex flex-col gap-4">
       <Explainer icon={<CoinsIcon />}>
-        Verifiers spend real compute re-running your code. The {SUI.feeSui} SUI fee pays them: it&apos;s held in the VTEC
+        Verifiers spend real compute re-running your code. The {SUI.feeSui} SUI fee pays them: it&apos;s held in the Opti-om
         vault on Sui and split between the verifiers who ran the check.
       </Explainer>
       {!suiReady() ? (

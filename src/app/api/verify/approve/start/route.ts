@@ -17,5 +17,5 @@ export async function POST(request: Request) {
   );
   if (!assignment) return Response.json({ error: "unknown_assignment" }, { status: 404 });
 
-  return Response.json(signedRequest(assignment.action, "Let my VTEC agent verify one submission"));
+  return Response.json(signedRequest(assignment.action, "Let my Opti-om agent verify one submission"));
 }

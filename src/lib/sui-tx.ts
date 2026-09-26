@@ -47,7 +47,7 @@ export function feeTx(approvalId: string, humanPassId: string) {
  * Buys a verified kernel in ONE transaction: pay, split 70/20/10 to tuner,
  * lineage and platform, and mint a non-transferable License to the buyer.
  */
-export function buyTx(listingId: string) {
+export function buyTx(listingId: string, royaltiesId: string) {
   const tx = new Transaction();
   const price = pay(tx, SUI.licenseSui);
   tx.moveCall({
@@ -55,6 +55,7 @@ export function buyTx(listingId: string) {
     arguments: [
       tx.object(listingId),
       tx.object(SUI.marketId),
+      tx.object(royaltiesId),
       price,
       tx.object("0x6"),
     ],

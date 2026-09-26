@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   IDKitRequestWidget,
-  proofOfHuman,
+  selfieCheckLegacy,
   type IDKitResult,
   type RpContext,
 } from "@worldcoin/idkit";
@@ -16,7 +16,7 @@ export type SignedRequest = {
   app_id: `app_${string}`;
   action: string;
   action_description?: string;
-  environment: "production" | "staging";
+  environment: "production" | "staging" | "sandbox";
   rp_context: RpContext;
   [extra: string]: unknown;
 };
@@ -31,7 +31,9 @@ const ERRORS: Record<string, string> = {
 };
 
 /**
- * One World ID check (IDKit, Proof of Human). The server signs the request
+ * One World ID check (IDKit, Selfie Check). Same approach as lib/selfie-check:
+ * the legacy preset, because Selfie Check is only issuable as a World ID 3.0
+ * proof (the 4.0 route fails on real devices). The server signs the request
  * (`start`), the widget collects the proof, and `confirm` sends it back to the
  * server, which verifies it with World. The signal binds the proof to one
  * thing (a session, or a Sui address), so it can't be replayed for another.
@@ -48,8 +50,12 @@ const WORLD_ERRORS: Partial<Record<string, { title: string; detail: string }>> =
     detail: "Nothing was approved. Try again when you're ready.",
   },
   [IDKitErrorCodes.CredentialUnavailable]: {
-    title: "No Proof of Human on this World ID",
-    detail: "This needs a World ID verified at an Orb.",
+    title: "No Selfie Check on this World ID",
+    detail: "Complete Selfie Check in World App first, then try again.",
+  },
+  [IDKitErrorCodes.FeatureUnavailable]: {
+    title: "Selfie Check isn't enabled for this app",
+    detail: "It's an access-gated beta: request the flag for this app_id from World.",
   },
 };
 export default function WorldIdButton({
@@ -127,8 +133,9 @@ export default function WorldIdButton({
           action_description={request.action_description}
           environment={request.environment}
           rp_context={request.rp_context}
+          // Required: selfieCheckLegacy() only ever returns 3.0 proofs.
           allow_legacy_proofs
-          preset={proofOfHuman({ signal: signal ?? sessionId })}
+          preset={selfieCheckLegacy({ signal: signal ?? sessionId })}
           handleVerify={verify}
           onSuccess={() => setRequest(null)}
           onError={(code) => {

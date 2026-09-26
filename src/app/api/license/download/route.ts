@@ -4,7 +4,7 @@ import { checkSignature, findLicense } from "@/lib/server/sui";
 
 const FRESH_MS = 5 * 60_000;
 
-// 1. The wallet signed "VTEC download <kernel> at <time>" -> check the signature.
+// 1. The wallet signed "Opti-om download <kernel> at <time>" -> check the signature.
 // 2. That address must own an unexpired License object for this kernel on Sui.
 // 3. Then, and only then, a one-use link valid for 2 minutes.
 export async function POST(request: Request) {
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "missing_fields" }, { status: 400 });
   }
 
-  const match = body.message.match(/^VTEC download (\S+) at (\d+)$/);
+  const match = body.message.match(/^Opti-om download (\S+) at (\d+)$/);
   if (!match || match[1] !== body.submissionId || Math.abs(Date.now() - Number(match[2])) > FRESH_MS) {
     return Response.json({ error: "stale_message", detail: "Sign a fresh download request." }, { status: 400 });
   }

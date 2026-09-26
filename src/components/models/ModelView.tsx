@@ -264,7 +264,7 @@ export default function ModelView({ model, initialWorkload }: { model: Model; in
           </h2>
           <p className="mt-2 max-w-2xl text-base text-muted-foreground">
             Kernels for {model.name}, ranked by verified speedup. Buy a license for {SUI.licenseSui} SUI: 70% goes to the tuner,
-            20% to the kernel it improved on, 10% to VTEC. Open a kernel for how it improved the model, the harness
+            20% to the kernel it improved on, 10% to Opti-om. Open a kernel for how it improved the model, the harness
             conditions and its contract.
           </p>
         </div>

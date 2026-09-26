@@ -64,7 +64,7 @@ export default function GetStarted() {
     <>
       <PageTitle
         title="Get started"
-        subtitle="Pick your hardware and a task, prove you're human with World ID, then run the VTEC agent on your laptop."
+        subtitle="Pick your hardware and a task, prove you're human with a World ID Selfie Check, then run the Opti-om agent on your laptop."
       />
 
       <div className="flex flex-col gap-3">
@@ -111,11 +111,6 @@ export default function GetStarted() {
             ) : null
           }
         >
-          <p className="mb-4 max-w-xl text-sm text-muted-foreground">
-            One person, one seat. Connect your Slush wallet, then prove you&apos;re a unique human with World ID. The
-            proof is bound to that wallet, and VTEC mints a <span className="text-foreground">HumanPass</span> to it on
-            Sui. It can&apos;t be transferred, and the contracts check for it.
-          </p>
           {sessionId ? <HumanPassSteps sessionId={sessionId} onDone={refresh} /> : null}
         </Step>
 
@@ -218,7 +213,7 @@ function HardwarePicker({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        We found these on this machine. Pick the one VTEC should use.
+        We found these on this machine. Pick the one Opti-om should use.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {devices.map((device) => (

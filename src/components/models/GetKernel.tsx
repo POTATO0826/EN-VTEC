@@ -16,7 +16,7 @@ export type Purchasable = {
   track: string;
   speedup: number | null;
   verifiers: { total: number };
-  listing: { id: string } | null;
+  listing: { id: string; royalties?: string } | null;
 };
 
 /* Buy (one PTB: pay + split + License) -> download (sign -> check -> link). */
@@ -41,11 +41,14 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
   }, [check]);
 
   const buy = async () => {
-    if (!row?.listing) return;
+    if (!row?.listing?.royalties) {
+      toast.error("This listing predates recoverable royalties and must be relisted.");
+      return;
+    }
     setBusy("buy");
     const id = toast.loading("Confirm the purchase in Slush…");
     try {
-      const tx = await dAppKit.signAndExecuteTransaction({ transaction: buyTx(row.listing.id) });
+      const tx = await dAppKit.signAndExecuteTransaction({ transaction: buyTx(row.listing.id, row.listing.royalties) });
       if (!tx.Transaction) throw new Error(tx.FailedTransaction?.status.error?.message ?? "Transaction failed.");
       const digest = tx.Transaction.digest;
       toast.success("License minted to your wallet", {
@@ -70,7 +73,7 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
     setBusy("download");
     const id = toast.loading("Sign the download request in Slush…");
     try {
-      const message = `VTEC download ${row.id} at ${Date.now()}`;
+      const message = `Opti-om download ${row.id} at ${Date.now()}`;
       const { signature } = await dAppKit.signPersonalMessage({ message: new TextEncoder().encode(message) });
       toast.loading("Checking your License on Sui…", { id });
       const res = await postJson("/api/license/download", {
@@ -122,7 +125,7 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
               ) : (
                 <>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    One transaction: you pay {SUI.licenseSui} SUI, it&apos;s split 70% tuner · 20% lineage · 10% VTEC, and
+                    One transaction: you pay {SUI.licenseSui} SUI, it&apos;s split 70% tuner · 20% lineage · 10% Opti-om, and
                     a License object is minted to your wallet.
                   </p>
                   <Button onClick={buy} disabled={!!busy} className="mt-3 rounded-full px-5">
@@ -137,7 +140,7 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
                 <DownloadIcon className="size-4" /> 2. Download
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                Sign a message with Slush. VTEC checks the signature and that this wallet owns the License, then gives you
+                Sign a message with Slush. Opti-om checks the signature and that this wallet owns the License, then gives you
                 a link that works once.
               </p>
               <Button

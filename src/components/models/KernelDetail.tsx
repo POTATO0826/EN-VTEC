@@ -190,7 +190,7 @@ export default function KernelDetail({ model, workloadId, kernelId }: { model: M
                   ? [
                       ["Listing", realData!.row?.listing ? <Tx id={realData!.row.listing.id} kind="object" /> : "not listed yet"],
                       ["Listed in", realData!.row?.listing ? <Tx id={realData!.row.listing.digest} /> : "—"],
-                      ["License price", `${SUI.licenseSui} SUI · 70% tuner · 20% lineage · 10% VTEC, in one transaction`],
+                      ["License price", `${SUI.licenseSui} SUI · 70% tuner · 20% lineage · 10% Opti-om, in one transaction`],
                       ["Lineage", realData!.row?.listing ? shortAddress(realData!.row.listing.lineage) : "—"],
                       ["Tuner", realData!.row?.tuner ? shortAddress(realData!.row.tuner) : "—"],
                       ["Process fee", d.approval?.fee ? <Tx id={d.approval.fee.digest} label={`${d.approval.fee.amountSui} SUI · view`} /> : "none (legacy)"],
@@ -200,7 +200,7 @@ export default function KernelDetail({ model, workloadId, kernelId }: { model: M
                   : [
                       ["Listing", sample!.contract.listingId ? shortAddress(sample!.contract.listingId) : "not listed (rejected)"],
                       ["Listed in", sample!.contract.listingTx ? `${sample!.contract.listingTx.slice(0, 12)}…` : "—"],
-                      ["License price", `${sample!.contract.licenseSui} SUI · ${sample!.contract.split.join("% / ")}% tuner / lineage / VTEC`],
+                      ["License price", `${sample!.contract.licenseSui} SUI · ${sample!.contract.split.join("% / ")}% tuner / lineage / Opti-om`],
                       ["Licenses sold", sample!.contract.licensesSold ?? "—"],
                       ["Lineage", sample!.contract.lineage ? shortAddress(sample!.contract.lineage) : "—"],
                       ["Tuner", sample!.row.tuner ? shortAddress(sample!.row.tuner) : "—"],

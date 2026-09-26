@@ -1,0 +1,12 @@
+# Secrets never leave this machine: env vars are set in Vercel instead.
+.env
+.env.*
+.data/env.local.bak*
+.data/backup-*
+.data/*.bak*
+.data/dev-server.log
+.data/world.log
+.data/Published*.toml
+node_modules
+.next
+.git

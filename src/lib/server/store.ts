@@ -2,6 +2,7 @@ import "server-only";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { DATA_DIR, dataPath } from "@/lib/server/data-dir";
 
 /**
  * One JSON file under .data/. Enough for a local demo and a single server.
@@ -76,7 +77,7 @@ export type Submission = {
   /** What the tuner's agent printed while building and submitting it: the auto-tune run, hashes, timing. */
   tuneLog?: string[];
   /** On sale once verified: the shared Listing on Sui. */
-  listing?: { id: string; digest: string; lineage: string } | null;
+  listing?: { id: string; digest: string; lineage: string; royalties?: string } | null;
   at: string;
   settledAt: string | null;
 };
@@ -134,7 +135,7 @@ type Data = {
   payouts: Record<string, string>;
 };
 
-const FILE = path.join(process.cwd(), ".data", "vtec.json");
+const FILE = dataPath("vtec.json");
 const EMPTY: Data = {
   seats: [],
   agents: [],
@@ -204,7 +205,7 @@ export function update<T>(fn: (data: Data) => T): Promise<T> {
 /* code. Stored by content hash.                                               */
 /* -------------------------------------------------------------------------- */
 
-const BUILDS = path.join(process.cwd(), ".data", "builds");
+const BUILDS = dataPath("builds");
 
 export type BuildBundle = { name: string; files: Record<string, string> };
 
