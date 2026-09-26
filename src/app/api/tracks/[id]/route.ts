@@ -1,4 +1,18 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { findTrack } from "@/lib/catalog";
+
+/** Builds shipped in tracks/<id>/, apart from the baseline they're measured against. */
+function buildsOf(trackId: string) {
+  const dir = path.join(process.cwd(), "tracks", trackId);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f !== "baseline" && existsSync(path.join(dir, f, "vtec.json")))
+    .map((folder) => {
+      const meta = JSON.parse(readFileSync(path.join(dir, folder, "vtec.json"), "utf8")) as { name?: string };
+      return { folder, name: meta.name ?? folder };
+    });
+}
 import { hasBuild, load } from "@/lib/server/store";
 import { kick } from "@/lib/server/verification";
 
@@ -51,6 +65,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
 
   return Response.json({
     rows,
+    builds: buildsOf(id),
     verified,
     approval: ready
       ? { id: ready.id, stage: "ready" as const }

@@ -34,6 +34,7 @@ type Row = {
 
 type TrackData = {
   rows: Row[];
+  builds: { folder: string; name: string }[];
   verified: boolean;
   /** Where this session is: World ID done and fee unpaid, or ready to run. */
   approval: { id: string; stage: "needs_fee" | "ready" } | null;
@@ -145,17 +146,11 @@ export default function TrackView({ track }: { track: Track }) {
             </Step>
 
             <Step n={4} title="Run it with your agent" state={state(4)}>
-              <p className="mb-3 text-sm text-muted-foreground">
-                The agent hashes your code (SHA-256), runs it and uploads the exact files. The submission is then{" "}
-                <span className="text-foreground">pending</span> until independent verifiers re-run it.
-              </p>
-              <CommandBlock>
-                bun agent/vtec-agent.ts submit {status?.agent?.code ?? "<CODE>"} --track {track.id}
-              </CommandBlock>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Runs <span className="vtec-num">tracks/{track.id}/baseline</span>. For your own build add{" "}
-                <span className="vtec-num">--build &lt;folder&gt;</span>; its vtec.json says how to run it.
-              </p>
+              <BuildPicker
+                trackId={track.id}
+                builds={data?.builds ?? []}
+                code={status?.agent?.code ?? "<CODE>"}
+              />
             </Step>
           </section>
 
@@ -380,6 +375,47 @@ function Explainer({ icon, children }: { icon: React.ReactNode; children: React.
       {icon}
       <span>{children}</span>
     </p>
+  );
+}
+
+function BuildPicker({
+  trackId,
+  builds,
+  code,
+}: {
+  trackId: string;
+  builds: { folder: string; name: string }[];
+  code: string;
+}) {
+  const [folder, setFolder] = React.useState<string | null>(null);
+  const chosen = folder ?? builds[0]?.folder ?? "";
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        Pick the build to submit. It&apos;s timed against the generic baseline on random inputs, so only a genuinely
+        faster, correct kernel passes.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {builds.map((b) => (
+          <button
+            key={b.folder}
+            type="button"
+            onClick={() => setFolder(b.folder)}
+            className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+              chosen === b.folder ? "border-primary bg-accent/60" : "border-border/70 text-muted-foreground hover:bg-accent/40"
+            }`}
+          >
+            {b.name}
+          </button>
+        ))}
+      </div>
+      <CommandBlock>
+        bun agent/vtec-agent.ts submit {code} --track {trackId} --build tracks/{trackId}/{chosen}
+      </CommandBlock>
+      <p className="text-xs text-muted-foreground">
+        Your own kernel: put it in a folder with a vtec.json (copy the tuned one) and pass that folder to --build.
+      </p>
+    </div>
   );
 }
 

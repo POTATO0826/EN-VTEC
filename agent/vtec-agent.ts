@@ -6,11 +6,11 @@
  *       Reads this machine's GPU/CPU and pairs with the browser session that
  *       showed <CODE> on the Get started page.
  *
- *   bun agent/vtec-agent.ts submit <CODE> --track <id> [--build <dir>] [--run "<command>"]
+ *   bun agent/vtec-agent.ts submit <CODE> --track <id> --build <dir> [--run "<command>"]
  *       Hashes the build (SHA-256), runs it, hashes its output and uploads the
  *       exact files. The submission starts as PENDING until verifiers agree.
- *       --build defaults to tracks/<id>/baseline; --run defaults to the "run"
- *       command in the build's vtec.json.
+ *       --run defaults to the "run" command in the build's vtec.json. The
+ *       baseline can't be submitted: it's what every build is measured against.
  *
  *   bun agent/vtec-agent.ts verify <CODE> [--runs 5]
  *       Runs every verification you approved with World ID: checks this
@@ -151,6 +151,15 @@ function hashFiles(files: Record<string, string>) {
   return h.digest("hex");
 }
 
+/** Build folders for a track, apart from the baseline. */
+function listBuilds(trackId: string) {
+  const dir = path.join(REPO, "tracks", trackId);
+  if (!existsSync(dir)) fail(`Unknown track: ${trackId}`);
+  return readdirSync(dir).filter(
+    (name) => name !== "baseline" && existsSync(path.join(dir, name, "vtec.json")),
+  );
+}
+
 function manifestOf(dir: string) {
   const file = path.join(dir, "vtec.json");
   return existsSync(file)
@@ -254,10 +263,22 @@ async function pair() {
 
 async function submit() {
   const track = flag("track");
-  if (!code || !track) fail('Usage: vtec-agent submit <CODE> --track <id> [--build <dir>] [--run "<command>"]');
+  if (!code || !track) fail('Usage: vtec-agent submit <CODE> --track <id> --build <dir> [--run "<command>"]');
 
-  const build = path.resolve(flag("build") ?? path.join(REPO, "tracks", track, "baseline"));
+  // You must say which build. The baseline is the reference everything is
+  // measured against, so submitting it can only ever score 1.00x.
+  const builds = listBuilds(track);
+  const options = builds.map((b) => `    --build tracks/${track}/${b}`).join("\n");
+  const choice = flag("build");
+  if (!choice) fail(`Say which build to submit with --build. Available for ${track}:\n${options}`);
+  const build = path.resolve(choice);
   if (!existsSync(build)) fail(`Build folder not found: ${build}`);
+  if (build === path.resolve(REPO, "tracks", track, "baseline")) {
+    fail(
+      "That's the baseline: the reference every build is compared with, so it can't be faster than itself.\n" +
+        `  Try one of:\n${options}`,
+    );
+  }
   const manifest = manifestOf(build);
   const run = flag("run") ?? manifest.run;
   if (!run) fail(`No --run given and no "run" in ${path.join(build, "vtec.json")}`);
