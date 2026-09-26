@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { HashChip, SectionLabel } from "@/components/vtec/primitives";
 import { useWallet, walletBridge } from "@/components/wallet/bridge";
+import WorldIdCard from "@/components/world/WorldIdCard";
 import {
   createPasskey,
   IDENTITY_PROVIDER_NOTE,
@@ -151,7 +152,7 @@ export default function Stage4Identity({ saga }: { saga: Saga }) {
           ? [
               identity.path === "passkey" ? "passkey" : "external wallet",
               "signs the plan hash",
-              "on Base",
+              identity.path === "wallet" && wallet.chain ? `on ${wallet.chain}` : "on device",
             ]
           : ["no signer", "sealing blocked"]
       }
@@ -161,10 +162,10 @@ export default function Stage4Identity({ saga }: { saga: Saga }) {
   return (
     <StageLayout
       headline="Create the key that will sign the plan."
-      subhead="Identity has to come before sealing, because sealing needs a signature. Both paths below reach exactly the same committed plan."
+      subhead="Sealing needs a signature, so pick a passkey or a wallet to sign with. Then claim your tuner seat with World ID."
       panel={panel}
     >
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="flex flex-col gap-4">
         {/* Passkey */}
         <ActionCard
           n={1}
@@ -173,7 +174,6 @@ export default function Stage4Identity({ saga }: { saga: Saga }) {
           state={
             identity.passkey ? "complete" : identity.path === "wallet" ? "future" : "active"
           }
-          className="h-full"
         >
           <Badge
             variant="outline"
@@ -238,7 +238,6 @@ export default function Stage4Identity({ saga }: { saga: Saga }) {
                 ? "future"
                 : "active"
           }
-          className="h-full"
         >
           <p className="text-sm leading-relaxed text-muted-foreground">
             This opens the wallet connect that is already in this app, in the
@@ -273,6 +272,8 @@ export default function Stage4Identity({ saga }: { saga: Saga }) {
           </PrimaryAction>
         </ActionCard>
       </div>
+
+      <WorldIdCard />
 
       <div className="flex items-center gap-3">
         <PrimaryAction onClick={advance} disabled={!ready}>

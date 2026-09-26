@@ -15,12 +15,15 @@ export type WalletSnapshot = {
   connected: boolean;
   label: string | null;
   chain: string | null;
+  /** The real 0x address, used as the World ID signal. */
+  address: string | null;
 };
 
 const DISCONNECTED: WalletSnapshot = {
   connected: false,
   label: null,
   chain: null,
+  address: null,
 };
 
 let snapshot: WalletSnapshot = DISCONNECTED;
@@ -46,8 +49,8 @@ export const walletBridge = {
   available() {
     return opener !== null;
   },
-  setConnected(label: string, chain: string) {
-    snapshot = { connected: true, label, chain };
+  setConnected(label: string, chain: string, address: string) {
+    snapshot = { connected: true, label, chain, address };
     emit();
   },
   setDisconnected() {

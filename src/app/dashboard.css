@@ -1442,9 +1442,9 @@ code {
   --warning: #d8b072;
   --danger: #dc7777;
   --info: #7f9cf5;
-  --vtec-rail: 300px;
-  --vtec-centre: 640px;
-  --vtec-panel: 420px;
+  --vtec-rail: 240px;
+  --vtec-centre: 720px;
+  --vtec-panel: 360px;
 }
 
 /* Status colours are token-driven so a light theme only has to redefine these. */
@@ -1460,23 +1460,46 @@ code {
 .vtec-saga-grid {
   display: grid;
   grid-template-columns:
-    minmax(240px, var(--vtec-rail))
-    minmax(0, var(--vtec-centre))
-    minmax(320px, var(--vtec-panel));
+    minmax(200px, var(--vtec-rail))
+    minmax(0, 1fr)
+    minmax(300px, var(--vtec-panel));
   gap: 40px;
   align-items: start;
 }
+.vtec-rail {
+  position: sticky;
+  top: 24px;
+}
+/* Below 1280 the side panel sits under the step, not squeezed beside it. */
 @media (max-width: 1280px) {
   .vtec-saga-grid {
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    grid-template-columns: minmax(200px, var(--vtec-rail)) minmax(0, 1fr);
+    gap: 32px;
   }
   .vtec-saga-grid > .vtec-panel-col {
-    grid-column: 1 / -1;
+    grid-column: 2;
   }
 }
+/* Phones: the rail becomes a row of step numbers across the top. */
 @media (max-width: 900px) {
   .vtec-saga-grid {
     grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .vtec-saga-grid > .vtec-panel-col {
+    grid-column: auto;
+  }
+  .vtec-rail {
+    position: static;
+  }
+  .vtec-rail-steps {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 4px;
+  }
+  .vtec-rail-text,
+  .vtec-rail-note {
+    display: none;
   }
 }
 

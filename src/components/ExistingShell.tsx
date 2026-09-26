@@ -3,13 +3,24 @@
 import React from "react";
 import DashboardNav from "./DashboardNav";
 import { walletBridge } from "./wallet/bridge";
+import {
+  CHAINS,
+  DEFAULT_CHAIN,
+  chainNameFor,
+  getBalance,
+  getProvider,
+  requestAccount,
+  shortAddress,
+  switchChain,
+  type ChainName,
+} from "../lib/metamask";
 
 // Original logo, animated background, and wallet presentation are preserved here.
-// The only addition is walletBridge: a handle so the registration saga can open
-// this same wallet connect instead of shipping a second one. Nothing about the
-// wallet's markup, styling or behaviour is changed by it.
+// walletBridge is a handle so the registration saga can open this same wallet
+// connect instead of shipping a second one. The connect button talks to the
+// real MetaMask (lib/metamask.ts); the markup and styling are unchanged.
 
-type Chain = "Base" | "Ethereum" | "Sepolia";
+type Chain = ChainName;
 interface Toast {
   title: string;
   body: string;
@@ -20,6 +31,8 @@ interface State {
   tilt: { x: number; y: number } | null;
   intro: string;
   connected: boolean;
+  address: string | null;
+  balance: string;
   chain: Chain;
   chainOpen: boolean;
   modal: "connect" | "perms" | "sign" | null;
@@ -62,7 +75,9 @@ export default class ExistingShell extends React.Component<
     tilt: null,
     intro: "done",
     connected: false,
-    chain: "Base",
+    address: null,
+    balance: "0.000",
+    chain: DEFAULT_CHAIN,
     chainOpen: false,
     modal: null,
     signing: false,
@@ -92,6 +107,59 @@ export default class ExistingShell extends React.Component<
 
     this.mountOrbs();
     walletBridge.register(() => this.setState({ modal: "connect" }));
+
+    // Keep the header honest when the user changes account or network inside
+    // MetaMask itself.
+    const provider = getProvider();
+    if (provider?.on) {
+      const onAccounts = (accounts: unknown) => {
+        const next = (accounts as string[])[0];
+        if (!next) this.disconnect();
+        else if (this.state.connected) this.syncWallet(next);
+      };
+      const onChain = (chainId: unknown) => {
+        const name = chainNameFor(Number(chainId));
+        if (name && this.state.connected && this.state.address) {
+          this.setState({ chain: name });
+          this.syncWallet(this.state.address, name);
+        }
+      };
+      provider.on("accountsChanged", onAccounts);
+      provider.on("chainChanged", onChain);
+      this.cleanups.push(() => {
+        provider.removeListener?.("accountsChanged", onAccounts);
+        provider.removeListener?.("chainChanged", onChain);
+      });
+    }
+  }
+  async syncWallet(address: string, chain: Chain = this.state.chain) {
+    const balance = await getBalance(address as `0x${string}`).catch(
+      () => "0.000",
+    );
+    if (!this._alive) return;
+    this.setState({ connected: true, address, balance, chain });
+    walletBridge.setConnected(shortAddress(address), chain, address);
+  }
+  disconnect() {
+    this.setState({ connected: false, address: null, balance: "0.000" });
+    walletBridge.setDisconnected();
+  }
+  walletError(e: unknown) {
+    const code = (e as { code?: number }).code;
+    this.showToast(
+      {
+        title: code === 4001 ? "Request rejected" : "MetaMask error",
+        body:
+          code === 4001
+            ? "You declined the request in MetaMask."
+            : e instanceof Error
+              ? e.message
+              : String(e),
+        meta: "",
+        color: "#F87171",
+      },
+      5000,
+    );
   }
   componentDidUpdate() {
     this.mountOrbs();
@@ -961,12 +1029,14 @@ vec3 tanh3(vec3 x) {
       MUTED = "#8A8F98",
       FG = "#EDEEF0",
       ACC = "#6E8CFF";
-    const chainColors = {
+    const chainColors: Record<Chain, string> = {
       Base: "#6E8CFF",
       Ethereum: "#8A8F98",
       Sepolia: "#A78BFA",
+      "World Chain Sepolia": "#EDEEF0",
     };
-    const balance = st.connected ? "1.240" : "0.000";
+    const balance = st.balance;
+    const walletLabel = st.address ? shortAddress(st.address) : "";
     return {
       introOn: !introDone,
       introDone,
@@ -980,27 +1050,27 @@ vec3 tanh3(vec3 x) {
       balance,
       chainOpen: st.chainOpen,
       toggleChain: () => this.setState((s) => ({ chainOpen: !s.chainOpen })),
-      chains: (
-        [
-          ["Base", "L2"],
-          ["Ethereum", "L1"],
-          ["Sepolia", "testnet"],
-        ] as const
-      ).map(([name, mark]) => ({
+      chains: (Object.keys(CHAINS) as Chain[]).map((name) => ({
         name,
-        mark,
+        mark: CHAINS[name].testnet ? "testnet" : "mainnet",
         color: chainColors[name],
-        pick: () => {
-          this.setState({ chain: name, chainOpen: false });
-          this.showToast(
-            {
-              title: "Network switched",
-              body: name,
-              meta: "wallet_switchEthereumChain",
-              color: chainColors[name],
-            },
-            3000,
-          );
+        pick: async () => {
+          this.setState({ chainOpen: false });
+          try {
+            await switchChain(name);
+            if (st.address) await this.syncWallet(st.address, name);
+            this.showToast(
+              {
+                title: "Network switched",
+                body: name,
+                meta: `chain id ${CHAINS[name].id}`,
+                color: chainColors[name],
+              },
+              3000,
+            );
+          } catch (e) {
+            this.walletError(e);
+          }
         },
       })),
       openConnect: () => this.setState({ modal: "connect" }),
@@ -1036,19 +1106,26 @@ vec3 tanh3(vec3 x) {
       }),
       modalPerms: st.modal === "perms",
       modalSign: st.modal === "sign",
-      connectMetamask: () => {
-        this.setState({ connected: true, modal: null });
-        walletBridge.setConnected("vince-prover.eth", st.chain);
-        this.showToast(
-          {
-            title: "Wallet connected",
-            body: "vince-prover.eth",
-            meta: st.chain + " · session key requested",
-            color: ACC,
-          },
-          3500,
-        );
-        setTimeout(() => this._alive && this.setState({ modal: "perms" }), 900);
+      metamaskFound: typeof window !== "undefined" && !!getProvider(),
+      walletLabel,
+      connectMetamask: async () => {
+        try {
+          const address = await requestAccount();
+          await switchChain(DEFAULT_CHAIN);
+          this.setState({ modal: null });
+          await this.syncWallet(address, DEFAULT_CHAIN);
+          this.showToast(
+            {
+              title: "Wallet connected",
+              body: shortAddress(address),
+              meta: DEFAULT_CHAIN,
+              color: ACC,
+            },
+            3500,
+          );
+        } catch (e) {
+          this.walletError(e);
+        }
       },
       perms: [
         [
@@ -1101,6 +1178,8 @@ vec3 tanh3(vec3 x) {
       logoDx,
       logoDy,
       logoRef,
+      metamaskFound,
+      walletLabel,
       modalConnect,
       modalPerms,
       openConnect,
@@ -1328,7 +1407,7 @@ vec3 tanh3(vec3 x) {
                               background: `linear-gradient(135deg, #6E8CFF, #A78BFA 55%, #7DE2D1)`,
                             }}
                           ></span>
-                          {"vince-prover.eth"}
+                          {walletLabel}
                           <span
                             style={{
                               font: `500 13px/1 'Geist Mono', monospace`,
@@ -1734,7 +1813,7 @@ vec3 tanh3(vec3 x) {
                             color: `rgba(237,238,240,.6)`,
                           }}
                         >
-                          {"detected"}
+                          {metamaskFound ? "detected" : "not installed"}
                         </span>
                       </button>
                     </div>

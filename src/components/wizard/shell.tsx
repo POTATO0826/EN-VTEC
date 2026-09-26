@@ -6,7 +6,7 @@ import { cn } from "cn";
 import { LockIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Shdr13, type OrbState } from "@/components/ui/shdr-13";
+import type { OrbState } from "@/components/ui/shdr-13";
 import {
   NumberMarker,
   Panel,
@@ -28,8 +28,8 @@ import {
 
 export function SagaHeader({ stage }: { stage: number }) {
   return (
-    <div className="mb-10 flex items-center justify-between gap-6">
-      <SectionLabel>Create your project</SectionLabel>
+    <div className="mb-8 flex items-center justify-between gap-6 border-b border-border/40 pb-5">
+      <SectionLabel>New project</SectionLabel>
       <div className="flex items-center gap-4">
         <span className="text-xs tracking-[0.2em] text-muted-foreground uppercase">
           {stage > ACTIONABLE_STAGES
@@ -64,9 +64,8 @@ export function Rail({
   goTo: (stage: number) => void;
 }) {
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-1">
-        <SectionLabel className="mb-4">Create your project</SectionLabel>
+    <div className="vtec-rail flex flex-col gap-6">
+      <div className="vtec-rail-steps flex flex-col gap-0.5">
         {STAGES.map((item) => {
           const complete = stageComplete(state, item.id);
           const current = state.stage === item.id;
@@ -78,7 +77,8 @@ export function Rail({
               disabled={!reachable}
               onClick={() => goTo(item.id)}
               className={cn(
-                "flex items-start gap-3 rounded-lg px-2 py-2.5 text-left transition-colors",
+                "flex items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors",
+                current && "bg-accent/40",
                 reachable ? "hover:bg-accent/40" : "cursor-not-allowed",
               )}
             >
@@ -92,7 +92,7 @@ export function Rail({
                       : "future"
                 }
               />
-              <span className="flex flex-col gap-0.5 pt-1">
+              <span className="vtec-rail-text flex flex-col gap-0.5">
                 <span
                   className={cn(
                     "text-sm",
@@ -129,7 +129,7 @@ export function Rail({
         })}
       </div>
 
-      <Panel className="gap-3 bg-muted/20 p-5">
+      <Panel className="vtec-rail-note gap-3 bg-muted/20 p-5 md:p-5">
         <SectionLabel>What this step commits you to</SectionLabel>
         <p className="text-sm leading-relaxed text-muted-foreground">
           {STAGE_COMMITMENTS[state.stage]}
@@ -158,10 +158,10 @@ export function StageLayout({
     <>
       <div className="flex min-w-0 flex-col gap-6">
         <div>
-          <h1 className="text-4xl font-medium tracking-tight text-balance md:text-5xl">
+          <h1 className="text-3xl font-medium tracking-tight text-balance md:text-4xl">
             {headline}
           </h1>
-          <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+          <p className="mt-3 max-w-2xl text-base leading-relaxed text-muted-foreground">
             {subhead}
           </p>
         </div>
@@ -192,30 +192,21 @@ export function ActionCard({
   className?: string;
 }) {
   return (
-    <Panel className={cn("gap-0", className)}>
-      <div className="flex gap-4 md:gap-5">
-        <div className="flex flex-col items-center gap-2">
-          <NumberMarker n={n} state={state} />
-          {state === "active" ? (
-            <span className="text-center text-[10px] leading-tight tracking-[0.18em] text-primary uppercase">
-              in
-              <br />
-              progress
-            </span>
-          ) : null}
+    <Panel className={cn("gap-4 p-6 md:p-6", className)}>
+      <div>
+        <div className="flex items-center gap-3">
+          <NumberMarker n={n} state={state} className="size-7" />
+          <h2 className="text-base font-medium">{title}</h2>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <div>
-            <h2 className="text-base font-medium">{title}</h2>
-            {why ? (
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {why}
-              </p>
-            ) : null}
-          </div>
-          {children}
-        </div>
+        {why ? (
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            {why}
+          </p>
+        ) : null}
       </div>
+      {children ? (
+        <div className="flex min-w-0 flex-col gap-4">{children}</div>
+      ) : null}
     </Panel>
   );
 }
@@ -271,8 +262,6 @@ export function RightPanel({
   label,
   state,
   tone = "muted",
-  orb,
-  orbSize = 96,
   focal,
   helper,
   pills = [],
@@ -281,6 +270,7 @@ export function RightPanel({
   label: string;
   state: string;
   tone?: "success" | "warning" | "danger" | "info" | "muted";
+  /** Accepted for compatibility; the panel no longer draws the orb. */
   orb?: OrbState | null;
   orbSize?: number;
   focal?: React.ReactNode;
@@ -290,16 +280,10 @@ export function RightPanel({
   blocked?: string;
 }) {
   return (
-    <Panel className="sticky top-6 min-h-[560px] gap-6 p-6 md:p-6">
+    <Panel className="sticky top-6 gap-5 p-6 md:p-6">
       <PanelHeader label={label} state={state} tone={tone} />
 
-      {orb ? (
-        <div className="flex justify-center pt-2">
-          <Shdr13 state={orb} size={orbSize} />
-        </div>
-      ) : null}
-
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 py-4 text-center">
+      <div className="flex flex-col items-center justify-center gap-4 py-2 text-center">
         {focal}
       </div>
 
