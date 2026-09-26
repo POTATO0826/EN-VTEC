@@ -33,8 +33,14 @@ if (!existsSync(SUI)) {
 const address = sui(["client", "active-address"]).trim();
 console.log(`admin / publisher: ${address}`);
 
-const gas = JSON.parse(sui(["client", "gas", "--json"])) as { mistBalance: string | number }[];
-const balance = gas.reduce((n, c) => n + BigInt(c.mistBalance), BigInt(0));
+// Older CLIs return a list of gas coins; newer ones an object that also counts
+// the address balance.
+const gas = JSON.parse(sui(["client", "gas", "--json"])) as
+  | { mistBalance: string | number }[]
+  | { gasCoins: { mistBalance: string | number }[]; addressMistBalance?: string | number };
+const balance = Array.isArray(gas)
+  ? gas.reduce((n, c) => n + BigInt(c.mistBalance), BigInt(0))
+  : BigInt(gas.addressMistBalance ?? 0) + gas.gasCoins.reduce((n, c) => n + BigInt(c.mistBalance), BigInt(0));
 console.log(`balance: ${Number(balance) / 1e9} SUI`);
 if (balance < BigInt(300_000_000)) {
   console.error(`Needs at least 0.3 SUI for gas. Send some from Slush to ${address} and run this again.`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { Transaction } from "@mysten/sui/transactions";
+import { coinWithBalance, Transaction } from "@mysten/sui/transactions";
 
 /** Public Sui config baked in at build time. */
 export const SUI = {
@@ -19,10 +19,13 @@ const keyBytes = (id: string) => Array.from(new TextEncoder().encode(id));
 /** Locks the stake for one approval in the vault. */
 export function stakeTx(approvalId: string) {
   const tx = new Transaction();
-  const [coin] = tx.splitCoins(tx.gas, [toMist(SUI.stakeSui)]);
   tx.moveCall({
     target: `${SUI.packageId}::vault::stake`,
-    arguments: [tx.object(SUI.vaultId), tx.pure.vector("u8", keyBytes(approvalId)), coin],
+    arguments: [
+      tx.object(SUI.vaultId),
+      tx.pure.vector("u8", keyBytes(approvalId)),
+      coinWithBalance({ balance: toMist(SUI.stakeSui) }),
+    ],
   });
   return tx;
 }
@@ -30,10 +33,13 @@ export function stakeTx(approvalId: string) {
 /** Pays a tuner's royalty for one verified submission. */
 export function royaltyTx(submissionId: string, tuner: string) {
   const tx = new Transaction();
-  const [coin] = tx.splitCoins(tx.gas, [toMist(SUI.royaltySui)]);
   tx.moveCall({
     target: `${SUI.packageId}::vault::pay_royalty`,
-    arguments: [tx.pure.vector("u8", keyBytes(submissionId)), tx.pure.address(tuner), coin],
+    arguments: [
+      tx.pure.vector("u8", keyBytes(submissionId)),
+      tx.pure.address(tuner),
+      coinWithBalance({ balance: toMist(SUI.royaltySui) }),
+    ],
   });
   return tx;
 }

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useCurrentAccount, useSignAndExecuteTransaction } from "@mysten/dapp-kit";
+import { useCurrentAccount, useDAppKit } from "@mysten/dapp-kit-react";
 import { ArrowLeftIcon, ArrowUpRightIcon, CheckIcon, CoinsIcon, ScanFaceIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -189,7 +189,7 @@ function WorldApproval({ sessionId, trackId, onDone }: { sessionId: string; trac
 
 function StakeApproval({ sessionId, trackId, onDone }: { sessionId: string; trackId: string; onDone: () => void }) {
   const account = useCurrentAccount();
-  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const dAppKit = useDAppKit();
   const [busy, setBusy] = React.useState(false);
 
   const stake = async () => {
@@ -202,7 +202,9 @@ function StakeApproval({ sessionId, trackId, onDone }: { sessionId: string; trac
       if (data.kind !== "stake") throw new Error("You're verified: approve with World ID instead.");
 
       toast.loading("Confirm in Slush…", { id });
-      const { digest } = await signAndExecute({ transaction: stakeTx(data.approvalId) });
+      const tx = await dAppKit.signAndExecuteTransaction({ transaction: stakeTx(data.approvalId) });
+      if (!tx.Transaction) throw new Error(tx.FailedTransaction?.status.error?.message ?? "Transaction failed.");
+      const digest = tx.Transaction.digest;
 
       toast.loading("Checking the stake on Sui…", { id });
       const check = await postJson("/api/approval/stake", { approvalId: data.approvalId, sessionId, digest });

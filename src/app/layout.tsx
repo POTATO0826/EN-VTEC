@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import "@mysten/dapp-kit/dist/index.css";
 import AppProviders from "@/components/providers/AppProviders";
 import Background from "@/components/shell/Background";
 import Header from "@/components/shell/Header";

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useCurrentAccount, useSignAndExecuteTransaction } from "@mysten/dapp-kit";
+import { useCurrentAccount, useDAppKit } from "@mysten/dapp-kit-react";
 import { zipSync } from "fflate";
 import { CheckIcon, DownloadIcon, ScanFaceIcon, TrophyIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -157,7 +157,7 @@ function useEnsSubscription() {
 function GetCodeDialog({ row, onClose, onPaid }: { row: Row | null; onClose: () => void; onPaid: () => void }) {
   const ens = useEnsSubscription();
   const account = useCurrentAccount();
-  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const dAppKit = useDAppKit();
   const [label, setLabel] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
@@ -166,7 +166,9 @@ function GetCodeDialog({ row, onClose, onPaid }: { row: Row | null; onClose: () 
     setBusy(true);
     const id = toast.loading("Confirm the royalty in Slush…");
     try {
-      const { digest } = await signAndExecute({ transaction: royaltyTx(row.id, row.payout) });
+      const result = await dAppKit.signAndExecuteTransaction({ transaction: royaltyTx(row.id, row.payout) });
+      if (!result.Transaction) throw new Error(result.FailedTransaction?.status.error?.message ?? "Transaction failed.");
+      const digest = result.Transaction.digest;
       toast.loading("Checking the payment on Sui…", { id });
       const res = await postJson("/api/royalty", { submissionId: row.id, digest });
       const bundle = await res.json();

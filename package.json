@@ -12,10 +12,9 @@
     "agent": "bun agent/vtec-agent.ts"
   },
   "dependencies": {
-    "@mysten/dapp-kit": "^1.1.17",
+    "@mysten/dapp-kit-react": "^2.1.35",
     "@mysten/sui": "^2.33.1",
     "@noble/hashes": "1.8.0",
-    "@tanstack/react-query": "^5.104.0",
     "@worldcoin/idkit": "^4.3.0",
     "@worldcoin/idkit-core": "^4.3.0",
     "class-variance-authority": "^0.7.1",
