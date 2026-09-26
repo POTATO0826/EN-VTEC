@@ -14,12 +14,6 @@ export const TASKS: Task[] = [
     available: true,
   },
   {
-    id: "media",
-    name: "Video rendering",
-    detail: "Render and encode video faster: same frames, less time.",
-    available: true,
-  },
-  {
     id: "zk-groth16",
     name: "ZK proving",
     detail: "Groth16 proofs (BN254). The heavy parts, MSM and FFT, are GPU work.",
@@ -51,19 +45,6 @@ export const TRACKS: Track[] = [
       ["Hardware", "NVIDIA GPU, driver 525+"],
     ],
     metric: "Time (s)",
-  },
-  {
-    id: "video-1080p-2min",
-    name: "Video render",
-    category: "Media",
-    summary: "Render the same 2-minute 1080p clip as fast as possible. Same output, less time.",
-    spec: [
-      ["Clip", "2 min test pattern + 440 Hz tone (ffmpeg testsrc2)"],
-      ["Output", "1920×1080, 30 fps, H.264, 3,600 frames"],
-      ["Check", "Same frames and picture as the baseline"],
-      ["Hardware", "Reported by the agent (GPU, driver, CPU)"],
-    ],
-    metric: "Render time (s)",
   },
 ];
 

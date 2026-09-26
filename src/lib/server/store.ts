@@ -47,8 +47,6 @@ export type SubmissionStatus = "pending" | "verifying" | "verified" | "rejected"
 export type BuildRequirements = {
   /** Minimum NVIDIA driver, e.g. "570". */
   nvidiaDriver?: string;
-  /** ffmpeg encoders the build calls, e.g. ["h264_nvenc"]. */
-  ffmpegEncoders?: string[];
 };
 
 export type Submission = {

@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { HARNESS_ENABLED, harnessRunning, PLATFORM_CODE, PLATFORM_SESSION, runHarness } from "./harness";
+import { findTrack } from "@/lib/catalog";
 import { hasBuild, load, update, type Submission, type VerifyReport } from "./store";
 import { adminAddress, adminReady, distributeFee, drawSeed, listKernel, refundFee } from "./sui";
 
@@ -58,7 +59,10 @@ async function assignAll() {
   const data = await load();
   let harnessNeeded = false;
   // Submissions from before builds were uploaded have no code to re-run.
-  for (const sub of data.submissions.filter((s) => s.status === "pending" && hasBuild(s.buildSha256))) {
+  // (Or whose track was removed: there's no baseline left to compare with.)
+  for (const sub of data.submissions.filter(
+    (s) => s.status === "pending" && hasBuild(s.buildSha256) && findTrack(s.trackId),
+  )) {
     const candidates = data.verifiers
       .map((v) => v.sessionId)
       .filter((id) => id !== sub.sessionId && id !== PLATFORM_SESSION);
@@ -131,7 +135,9 @@ function ensurePlatformAgent(d: Parameters<Parameters<typeof update>[0]>[0]) {
  */
 export async function kick() {
   const data = await load();
-  if (data.submissions.some((s) => s.status === "pending" && hasBuild(s.buildSha256))) await assignPending();
+  if (data.submissions.some((s) => s.status === "pending" && hasBuild(s.buildSha256) && findTrack(s.trackId))) {
+    await assignPending();
+  }
   const harnessJobs = data.assignments.some(
     (a) => a.sessionId === PLATFORM_SESSION && (a.status === "approved" || a.status === "committed"),
   );

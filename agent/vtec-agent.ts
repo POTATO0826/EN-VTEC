@@ -108,7 +108,7 @@ function cpuName() {
   return os.cpus()[0]?.model.trim() ?? "unknown CPU";
 }
 
-type Requirements = { nvidiaDriver?: string; ffmpegEncoders?: string[] };
+type Requirements = { nvidiaDriver?: string };
 
 /** Can this machine run a build with these requirements? */
 function checkCompatible(requires: Requirements): { ok: true } | { ok: false; reason: string } {
@@ -118,16 +118,6 @@ function checkCompatible(requires: Requirements): { ok: true } | { ok: false; re
     if (Number.parseFloat(nvidia.driver) < Number.parseFloat(requires.nvidiaDriver)) {
       return { ok: false, reason: `needs NVIDIA driver ${requires.nvidiaDriver}+, this machine has ${nvidia.driver}` };
     }
-  }
-  for (const encoder of requires.ffmpegEncoders ?? []) {
-    // Listing an encoder isn't enough (NVENC is listed on old drivers too), so
-    // actually encode one tiny frame with it.
-    const probe = spawnSync(
-      "ffmpeg",
-      ["-loglevel", "error", "-f", "lavfi", "-i", "color=size=256x256:duration=0.1", "-c:v", encoder, "-f", "null", "-"],
-      { encoding: "utf8" },
-    );
-    if (probe.status !== 0) return { ok: false, reason: `ffmpeg encoder ${encoder} doesn't work here` };
   }
   return { ok: true };
 }
@@ -189,37 +179,7 @@ function runOnce(dir: string, run: string, seed = "0", out?: string) {
   return { ms, sha256: createHash("sha256").update(result.stdout).digest("hex") };
 }
 
-/**
- * The harness's own look at a video: it counts decoded frames and grabs a tiny
- * thumbnail from the middle. It never trusts what the build printed.
- */
-function inspectVideo(file: string) {
-  if (!existsSync(file)) return null;
-  const probe = spawnSync(
-    "ffprobe",
-    ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries",
-      "stream=codec_name,width,height,r_frame_rate,nb_read_frames", "-of", "csv=p=0", file],
-    { encoding: "utf8" },
-  );
-  const thumb = spawnSync(
-    "ffmpeg",
-    ["-loglevel", "error", "-ss", "60", "-i", file, "-frames:v", "1", "-vf", "scale=16:9", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
-    { encoding: "buffer" },
-  );
-  return { stream: probe.stdout.trim(), thumb: thumb.stdout };
-}
-
-/** Same stream shape and (lossy-encoding tolerant) same picture. */
-function sameVideo(a: ReturnType<typeof inspectVideo>, b: ReturnType<typeof inspectVideo>) {
-  if (!a || !b || !a.stream || a.stream !== b.stream || a.thumb.length !== b.thumb.length || a.thumb.length === 0) {
-    return false;
-  }
-  let diff = 0;
-  for (let i = 0; i < a.thumb.length; i++) diff += Math.abs(a.thumb[i] - b.thumb[i]);
-  return diff / a.thumb.length < 8;
-}
-
-type TrackConfig = { output?: string; compare?: "video" | "tensor"; tolerance?: number };
+type TrackConfig = { output?: string; compare?: "tensor"; tolerance?: number };
 
 /** tracks/<id>/track.json: what a build writes and how outputs are compared. */
 function trackConfig(trackId: string): TrackConfig {
@@ -402,11 +362,9 @@ async function verifyOne(job: Job, runs: number) {
       // The harness checks the output files itself; it never trusts what a build prints.
       const files = !existsSync(baseOut)
         ? true
-        : track.compare === "video"
-          ? sameVideo(inspectVideo(baseOut), inspectVideo(candOut))
-          : track.compare === "tensor"
-            ? sameTensor(baseOut, candOut, track.tolerance ?? 1e-3)
-            : false;
+        : track.compare === "tensor"
+          ? sameTensor(baseOut, candOut, track.tolerance ?? 1e-3)
+          : false;
       const same = b.sha256 === c.sha256 && files;
       correct &&= same;
       console.log(

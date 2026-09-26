@@ -1,4 +1,0 @@
-{
-  "name": "baseline (CPU, libx264)",
-  "run": "bun render.ts"
-}
