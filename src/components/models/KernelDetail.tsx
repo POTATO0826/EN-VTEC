@@ -8,8 +8,9 @@ import GetKernelDialog, { type Purchasable } from "@/components/models/GetKernel
 import Evidence from "@/components/results/Evidence";
 import SkillChart from "@/components/results/SkillChart";
 import { STATUS } from "@/components/results/status";
-import { findWorkload, sampleDetail, type HistoryEntry, type KernelDetailData, type KernelRow, type Model, type WorkloadId } from "@/lib/models";
-import { fmt, spokeStats, times, valueText, type ResultEntry } from "@/lib/results";
+import RecordChain from "@/components/models/RecordChain";
+import { findWorkload, sampleDetail, sampleKernels, type KernelRow, type Model, type WorkloadId } from "@/lib/models";
+import { spokeStats, times, valueText, type ResultEntry } from "@/lib/results";
 import { useSessionId } from "@/lib/session";
 import { explorerTx, shortAddress, SUI } from "@/lib/sui-tx";
 
@@ -22,7 +23,7 @@ import { explorerTx, shortAddress, SUI } from "@/lib/sui-tx";
 export default function KernelDetail({ model, workloadId, kernelId }: { model: Model; workloadId: WorkloadId; kernelId: string }) {
   const sessionId = useSessionId();
   const real = kernelId.startsWith("sub_");
-  const [realData, setRealData] = React.useState<{ entry: ResultEntry; row: KernelRow | null; history: ResultEntry[] } | null>(null);
+  const [realData, setRealData] = React.useState<{ entry: ResultEntry; row: KernelRow | null; board: KernelRow[] } | null>(null);
   const [buying, setBuying] = React.useState<Purchasable | null>(null);
   const w = findWorkload(workloadId)!;
 
@@ -38,7 +39,7 @@ export default function KernelDetail({ model, workloadId, kernelId }: { model: M
       const entries = (await a.json()).entries as ResultEntry[];
       const rows = (await b.json()).rows as KernelRow[];
       const entry = entries.find((e) => e.id === kernelId);
-      if (entry) setRealData({ entry, row: rows.find((r) => r.id === kernelId) ?? null, history: entries.filter((e) => e.track === entry.track) });
+      if (entry) setRealData({ entry, row: rows.find((r) => r.id === kernelId) ?? null, board: rows.filter((r) => r.workloadId === workloadId) });
     };
     load();
     const timer = setInterval(load, 3000);
@@ -239,26 +240,14 @@ export default function KernelDetail({ model, workloadId, kernelId }: { model: M
         <Evidence entry={entry} sample={!real} />
       </div>
 
-      {/* Submission history, every entry on the same model */}
-      <History
+      {/* How this board's #1 was built, one dethroning at a time */}
+      <RecordChain
         model={model}
         title={`${model.name} · ${w.label}`}
-        entries={
-          real
-            ? realData!.history
-                .filter((e) => e.detail.outcome)
-                .map((e) => ({
-                  at: e.detail.outcome!.at,
-                  note: `${e.kernel.name}: ${e.detail.status === "verified" ? `verified at ${times(e.detail.outcome!.speedup)}` : "not proven faster"}`,
-                  fullNote: `${e.detail.verifiers.map((v) => `${v.who}: ${v.report?.reason ?? v.incompatible ?? "running"}`).join(" ")}`,
-                  status: e.detail.status === "verified" ? "verified" : e.detail.status === "rejected" ? "rejected" : "pending",
-                  score: e.detail.outcome!.speedup ?? 0,
-                  landed: e.detail.status === "verified",
-                }))
-            : sample!.history
-        }
-        scoreOf={(h) => (real ? times(h.score) : `${fmt(h.score, 1)} tok/s`)}
-        scoreLabel={real ? "speedup" : "decode tok/s"}
+        currentId={kernelId}
+        rows={(real ? realData!.board : sampleKernels(model, workloadId))
+          .filter((r) => r.status === "verified")
+          .map((r) => ({ id: r.id, at: r.submittedAt, who: r.tuner, name: r.name, speedup: r.speedup, sample: r.sample }))}
       />
 
       <GetKernelDialog row={buying} onClose={() => setBuying(null)} />
@@ -316,77 +305,5 @@ function Tx({ id, kind = "tx", label = "view on Sui" }: { id: string; kind?: "tx
     <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline">
       {kind === "object" ? shortAddress(id) : label} <ExternalLinkIcon className="size-3" />
     </a>
-  );
-}
-
-/** The submission timeline: personal best and standing up top, one row per submission, all on the same model. */
-function History({
-  model,
-  title,
-  entries,
-  scoreOf,
-  scoreLabel,
-}: {
-  model: Model;
-  title: string;
-  entries: HistoryEntry[];
-  scoreOf: (h: HistoryEntry) => string;
-  scoreLabel: string;
-}) {
-  const [open, setOpen] = React.useState<number | null>(null);
-  const [collapsed, setCollapsed] = React.useState(false);
-  const sorted = [...entries].sort((a, b) => b.at.localeCompare(a.at));
-  const landed = sorted.filter((h) => h.landed);
-  const best = landed.length ? landed.reduce((a, b) => (b.score > a.score ? b : a)) : null;
-  const standing = best ? landed.filter((h) => h.score > best.score).length + 1 : null;
-  return (
-    <section className="mx-auto mb-16 w-full max-w-6xl">
-      <div className="overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 bg-accent/40 px-5 py-4">
-          <h2 className="text-lg font-medium">Submission history · {title}</h2>
-          <div className="flex items-center gap-6">
-            <div className="text-right">
-              <div className="text-[10px] tracking-[0.18em] text-muted-foreground uppercase">Personal best · {scoreLabel}</div>
-              <div className="vtec-num text-lg">{best ? scoreOf(best) : "—"}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-[10px] tracking-[0.18em] text-muted-foreground uppercase">Standing</div>
-              <div className="vtec-num text-lg">{standing ? `${standing} / ${Math.max(landed.length, standing)}` : "—"}</div>
-            </div>
-            <Button variant="ghost" size="icon-sm" onClick={() => setCollapsed((c) => !c)} aria-label="Toggle history">
-              {collapsed ? <ChevronDownIcon /> : <ChevronUpIcon />}
-            </Button>
-          </div>
-        </div>
-        {collapsed ? null : sorted.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-muted-foreground">No decided submissions on this workload yet.</p>
-        ) : (
-          <ol className="relative ml-4 border-l border-border/60 py-2 pr-5">
-            {sorted.map((h, i) => (
-              <li key={`${h.at}-${i}`} className="relative py-4 pl-8">
-                <span className="absolute top-5 -left-[5px] size-2.5 rounded-full border-2 border-[var(--info)] bg-background" />
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="vtec-num text-xs text-muted-foreground">{new Date(h.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</div>
-                    <div className="mt-1 text-sm">{h.note}</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                      <ModelBadge model={model} />
-                      <span className="inline-flex items-center gap-1" style={{ color: h.landed ? "var(--success)" : "var(--danger)" }}>
-                        <GitCommitHorizontalIcon className="size-3.5" /> {h.landed ? "landed · verified" : h.status === "pending" ? "pending" : "rejected"}
-                      </span>
-                      <button type="button" onClick={() => setOpen(open === i ? null : i)} className="text-foreground underline-offset-4 hover:underline">
-                        {open === i ? "Hide note" : "View full note"}
-                      </button>
-                    </div>
-                    {open === i ? <p className="mt-2 max-w-[70ch] text-sm text-muted-foreground">{h.fullNote}</p> : null}
-                  </div>
-                  <div className="vtec-num text-lg whitespace-nowrap">{scoreOf(h)}</div>
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
-    </section>
   );
 }

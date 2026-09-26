@@ -593,3 +593,80 @@ export function sampleDetail(model: Model, workloadId: WorkloadId, kernelId: str
     history,
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* The record chain: how a board's #1 was built, one dethroning at a time      */
+/* -------------------------------------------------------------------------- */
+
+export type ChainInput = { id: string; at: string; who: string | null; name: string; speedup: number; sample: boolean };
+
+export type ChainNode = ChainInput & {
+  /** The record it beat, and by how much. */
+  prevSpeedup: number | null;
+  gainPct: number | null;
+  /** What this build does differently, in plain words. */
+  changes: string[];
+  /** Ordinal of the record: 1 = first verified kernel on the board. */
+  step: number;
+};
+
+const parseVariant = (name: string) => ({
+  threads: Number(name.match(/threads=(\d+)/)?.[1]) || null,
+  load: (name.match(/load=(plain|ldg)/)?.[1] ?? null) as "plain" | "ldg" | null,
+  auto: /auto-tuned/i.test(name),
+});
+
+/** Plain-words description of what a build does, from its name and how it differs from the previous record. */
+export function describeChange(name: string, prevName: string | null): string[] {
+  const v = parseVariant(name);
+  const p = prevName ? parseVariant(prevName) : null;
+  const out: string[] = [];
+  const lower = name.toLowerCase();
+
+  // What the kernel is.
+  if (/fused|float4|warp.?shuffle/.test(lower) && !v.auto) {
+    out.push("One fused kernel instead of the baseline's chain of generic ops: the row is read once and written once.");
+    if (/float4/.test(lower)) out.push("Reads 4 numbers at a time (float4), so 4× fewer memory transactions.");
+    if (/warp.?shuffle/.test(lower)) out.push("Sums within a warp using shuffles instead of shared memory and syncs.");
+  } else if (v.auto) {
+    out.push(
+      p?.auto
+        ? "Same fused kernel, re-tuned: the auto-tuner tried new variants on the tuner's GPU and this one won."
+        : "The auto-tuner tried variants of the fused kernel on the tuner's GPU and kept the fastest correct one.",
+    );
+  } else if (/paged|attention/.test(lower)) out.push("Attention over paged KV-cache blocks, so long contexts don't copy memory.");
+  else if (/winograd/.test(lower)) out.push("Winograd transform: fewer multiplications per 3×3 convolution.");
+  else if (/merge-path|spmv/.test(lower)) out.push("Merge-path load balancing: every thread gets equal work despite uneven rows.");
+  else if (/tile|shared/.test(lower)) out.push("Works on tiles held in fast shared memory instead of re-reading global memory.");
+  else out.push(`New approach: ${name}.`);
+
+  // What moved versus the previous record.
+  if (p && v.threads && p.threads && v.threads !== p.threads) {
+    out.push(`Threads per row: ${p.threads} → ${v.threads}, a better fit for this GPU's SM count.`);
+  } else if (v.threads && !p?.threads) out.push(`${v.threads} threads per row.`);
+  if (p && v.load && p.load && v.load !== p.load) {
+    out.push(v.load === "ldg" ? "Loads now go through the read-only cache (__ldg)." : "Loads switched back to plain reads.");
+  } else if (v.load === "ldg" && !p?.load) out.push("Loads go through the read-only cache (__ldg).");
+  return out;
+}
+
+/**
+ * The verified builds that took #1 when they landed, oldest first: the
+ * running record. Everything else on the board improved nothing at the time.
+ */
+export function recordChain(rows: ChainInput[]): ChainNode[] {
+  const chain: ChainNode[] = [];
+  let best: ChainInput | null = null;
+  for (const r of [...rows].sort((a, b) => a.at.localeCompare(b.at))) {
+    if (best && r.speedup <= best.speedup) continue;
+    chain.push({
+      ...r,
+      prevSpeedup: best?.speedup ?? null,
+      gainPct: best ? Math.round(((r.speedup - best.speedup) / best.speedup) * 1000) / 10 : null,
+      changes: describeChange(r.name, best?.name ?? null),
+      step: chain.length + 1,
+    });
+    best = r;
+  }
+  return chain;
+}
