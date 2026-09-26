@@ -24,6 +24,7 @@ type Row = {
   gpu: string;
   seconds: number;
   speedup: number | null;
+  legacy: boolean;
   verifiers: { assigned: number; revealed: number; passed: number };
   at: string;
 };
@@ -313,7 +314,11 @@ function Submissions({ rows }: { rows: Row[] }) {
                 </span>
               </TableCell>
               <TableCell className="vtec-num text-sm text-muted-foreground">
-                {row.verifiers.assigned === 0 ? "waiting for pool" : `${row.verifiers.revealed}/${row.verifiers.assigned} done`}
+                {row.legacy
+                  ? "old, not verifiable"
+                  : row.verifiers.assigned === 0
+                    ? "waiting for pool"
+                    : `${row.verifiers.revealed}/${row.verifiers.assigned} done`}
               </TableCell>
               <TableCell className="vtec-num text-right">{row.speedup ? `${row.speedup.toFixed(2)}×` : "—"}</TableCell>
               <TableCell className="vtec-num text-muted-foreground">{row.buildSha256.slice(0, 12)}…</TableCell>

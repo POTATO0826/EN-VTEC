@@ -1,5 +1,5 @@
 import { findTrack } from "@/lib/catalog";
-import { load } from "@/lib/server/store";
+import { hasBuild, load } from "@/lib/server/store";
 
 // Submissions for one track with their verification progress. Nothing here is
 // a ranking: only verified entries count, and they live on /ranking.
@@ -24,6 +24,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
         gpu: s.gpu,
         seconds: s.seconds,
         speedup: s.speedup,
+        // Made before builds were uploaded: nothing for verifiers to re-run.
+        legacy: !hasBuild(s.buildSha256),
         verifiers: {
           assigned: peers.length,
           revealed: peers.filter((a) => a.status === "revealed").length,

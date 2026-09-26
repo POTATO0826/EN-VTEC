@@ -1,4 +1,5 @@
 import "server-only";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -138,11 +139,38 @@ const EMPTY: Data = {
 };
 
 async function read(): Promise<Data> {
+  let data: Data;
   try {
-    return { ...structuredClone(EMPTY), ...(JSON.parse(await readFile(FILE, "utf8")) as Data) };
+    data = { ...structuredClone(EMPTY), ...(JSON.parse(await readFile(FILE, "utf8")) as Data) };
   } catch {
     return structuredClone(EMPTY);
   }
+  return upgrade(data);
+}
+
+/**
+ * Records saved by older versions of the app miss fields added since. Fill
+ * them with safe defaults so old data can't crash a page.
+ */
+function upgrade(data: Data): Data {
+  for (const a of data.approvals) {
+    a.kind ??= "worldid";
+    a.stake ??= null;
+    a.nullifier ??= null;
+    a.action ??= "";
+  }
+  for (const s of data.submissions) {
+    s.status ??= "pending";
+    s.buildName ??= "build";
+    s.specSha256 ??= "";
+    s.requires ??= {};
+    s.draw ??= null;
+    s.speedup ??= null;
+    s.payout ??= null;
+    s.settledAt ??= null;
+  }
+  for (const v of data.verifiers) v.reputation ??= 0;
+  return data;
 }
 
 // Writes are serialised so two requests can't interleave read-modify-write.
@@ -176,6 +204,10 @@ export type BuildBundle = { name: string; files: Record<string, string> };
 export async function saveBuild(sha256: string, bundle: BuildBundle) {
   await mkdir(BUILDS, { recursive: true });
   await writeFile(path.join(BUILDS, `${sha256}.json`), JSON.stringify(bundle));
+}
+
+export function hasBuild(sha256: string) {
+  return /^[0-9a-f]{64}$/.test(sha256) && existsSync(path.join(BUILDS, `${sha256}.json`));
 }
 
 export async function loadBuild(sha256: string): Promise<BuildBundle | null> {

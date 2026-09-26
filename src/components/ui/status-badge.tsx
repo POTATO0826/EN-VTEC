@@ -10,7 +10,7 @@ const STYLES = {
 export type Status = keyof typeof STYLES;
 
 export function StatusBadge({ status, className }: { status: Status; className?: string }) {
-  const s = STYLES[status];
+  const s = STYLES[status] ?? STYLES.pending;
   return (
     <span
       className={cn(

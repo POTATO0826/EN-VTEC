@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
-import { load, update, type Submission, type VerifyReport } from "./store";
+import { hasBuild, load, update, type Submission, type VerifyReport } from "./store";
 import { adminReady, drawSeed, settleStake } from "./sui";
 
 /**
@@ -36,7 +36,8 @@ function pick(seed: string, sessionIds: string[], count: number) {
 /** Draws verifiers for every pending submission that now has enough candidates. */
 export async function assignPending() {
   const data = await load();
-  for (const sub of data.submissions.filter((s) => s.status === "pending")) {
+  // Submissions from before builds were uploaded have no code to re-run.
+  for (const sub of data.submissions.filter((s) => s.status === "pending" && hasBuild(s.buildSha256))) {
     const candidates = data.verifiers
       .map((v) => v.sessionId)
       .filter((id) => id !== sub.sessionId);
