@@ -8,6 +8,7 @@ import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { PageTitle } from "@/components/ui/step";
 import { CommandBlock } from "@/components/tuners/TrackView";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
+import { submissionHref } from "@/lib/models";
 import { useSessionId, useSessionStatus } from "@/lib/session";
 
 type Report = {
@@ -101,7 +102,7 @@ export default function VerifyView() {
             {me.harness.jobs.map((job) => (
               <Link
                 key={job.submissionId}
-                href={`/results/${job.submissionId}`}
+                href={submissionHref(job.trackId, job.submissionId)}
                 className="flex items-center justify-between gap-4 border-b border-border/40 px-4 py-3 text-sm text-foreground transition-colors last:border-0 hover:bg-accent/40 hover:text-foreground"
               >
                 <span>
@@ -172,7 +173,7 @@ function Job({
         </div>
         <span className="flex items-center gap-3">
           <StatusBadge status={sub.status} />
-          <Link href={`/results/${sub.id}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
+          <Link href={submissionHref(sub.trackId, sub.id)} className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
             Full result <ArrowUpRightIcon className="size-3.5" />
           </Link>
         </span>

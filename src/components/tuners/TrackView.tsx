@@ -13,6 +13,7 @@ import { Step, type StepState } from "@/components/ui/step";
 import SlushConnect from "@/components/sui/SlushConnect";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import type { Track } from "@/lib/catalog";
+import { submissionHref } from "@/lib/models";
 import { useSessionId, useSessionStatus } from "@/lib/session";
 import { explorerTx, feeTx, SUI, suiReady } from "@/lib/sui-tx";
 
@@ -73,7 +74,7 @@ export default function TrackView({ track }: { track: Track }) {
         if (before === undefined) {
           setRunning(row.id);
         } else if (before !== row.status && (row.status === "verified" || row.status === "rejected")) {
-          const view = { label: "View result", onClick: () => router.push(`/results/${row.id}`) };
+          const view = { label: "View result", onClick: () => router.push(submissionHref(track.id, row.id)) };
           if (row.status === "verified") {
             toast.success(`Verified at ${row.speedup?.toFixed(2)}×`, {
               description: `${row.buildName} is on the ranking.`,
@@ -94,12 +95,12 @@ export default function TrackView({ track }: { track: Track }) {
     const fromHash = () => {
       const id = window.location.hash.slice(1);
       if (id.startsWith("run_")) setRunning(id.slice(4));
-      else if (id.startsWith("sub_")) router.replace(`/results/${id}`);
+      else if (id.startsWith("sub_")) router.replace(submissionHref(track.id, id));
     };
     fromHash();
     window.addEventListener("hashchange", fromHash);
     return () => window.removeEventListener("hashchange", fromHash);
-  }, [router]);
+  }, [router, track.id]);
 
   const hasAgent = !!status?.agent;
   const verified = !!data?.verified;
@@ -189,6 +190,7 @@ export default function TrackView({ track }: { track: Track }) {
 
       <RunningDialog
         row={data?.rows.find((r) => r.id === running) ?? null}
+        href={running ? submissionHref(track.id, running) : "/models"}
         onClose={() => {
           setRunning(null);
           if (window.location.hash.startsWith("#run_")) history.replaceState(null, "", window.location.pathname);
@@ -288,7 +290,7 @@ function FeePayment({ sessionId, approvalId, onDone }: { sessionId: string; appr
  * happened so far, what is running now, and the verdict once it lands. OK
  * closes it; the verdict toast and /results keep the rest.
  */
-function RunningDialog({ row, onClose }: { row: Row | null; onClose: () => void }) {
+function RunningDialog({ row, href, onClose }: { row: Row | null; href: string; onClose: () => void }) {
   const decided = row?.status === "verified" || row?.status === "rejected";
   const drawn = !!row && row.verifiers.assigned > 0;
   const ran = !!row && drawn && row.verifiers.revealed >= row.verifiers.assigned;
@@ -378,7 +380,7 @@ function RunningDialog({ row, onClose }: { row: Row | null; onClose: () => void 
         <div className="mt-2 flex flex-wrap justify-end gap-2">
           {decided && row ? (
             <Button asChild className="rounded-full px-5">
-              <Link href={`/results/${row.id}`}>
+              <Link href={href}>
                 See the full result <ArrowRightIcon />
               </Link>
             </Button>

@@ -148,6 +148,16 @@ export const MODELS: Model[] = [
 
 export const findModel = (id: string) => MODELS.find((m) => m.id === id) ?? null;
 
+/** Where a submission on a track is shown: the first model that maps the track, on that workload. */
+export function submissionHref(trackId: string, submissionId: string) {
+  for (const m of MODELS) {
+    for (const [workload, track] of Object.entries(m.tracks)) {
+      if (track === trackId) return `/models/${m.id}/kernels/${submissionId}?workload=${workload}`;
+    }
+  }
+  return "/models";
+}
+
 /* -------------------------------------------------------------------------- */
 /* Sample generation                                                           */
 /* -------------------------------------------------------------------------- */

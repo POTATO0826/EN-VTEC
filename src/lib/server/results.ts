@@ -104,7 +104,7 @@ function runsOf(reports: { who: string; report: VerifyReport }[]) {
 
 /**
  * A session's recent submissions as result entries, plus `include` if it
- * isn't one of them (someone opened a shared /results/<id> link).
+ * isn't one of them (someone opened another tuner's kernel page).
  */
 export function resultEntries(data: Data, sessionId: string | null, include: string | null): ResultEntry[] {
   const mine = data.submissions
