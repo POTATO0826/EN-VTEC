@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+@theme inline {
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--foreground);
+  --color-destructive: #dc7777;
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+:root {
+  --background: #101012;
+  --foreground: #ededee;
+  --card: rgba(18, 18, 21, 0.92);
+  --popover: #1b1b1f;
+  --primary: #fafafa;
+  --primary-foreground: #18181b;
+  --secondary: #27272b;
+  --muted: #222225;
+  --muted-foreground: #a1a1aa;
+  --accent: #29292e;
+  --border: #2b2b30;
+  --input: #36363c;
+  --ring: #a1a1aa;
+  --radius: 0.625rem;
+  --success: #87bb9b;
+  --mono: "Geist Mono", monospace;
+}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+:focus-visible {
+  outline-color: var(--ring);
+}
+.mono,
+code {
+  font-family: var(--mono);
+}
+.text-accent {
+  color: var(--success);
+}
+.micro {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.online-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  flex: none;
+}
+:root {
+  --warning: #d8b072;
+  --danger: #dc7777;
+  --info: #7f9cf5;
+}
+.vtec-num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+html,
+body {
+  margin: 0;
+  background: #08090b;
+  color: #edeef0;
+  font-family: "Geist", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+::selection {
+  background: rgba(110, 140, 255, 0.35);
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

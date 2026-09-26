@@ -1,5 +1,5 @@
-import HomeView from "@/components/home/HomeView";
+import GetStarted from "@/components/start/GetStarted";
 
 export default function Page() {
-  return <HomeView />;
+  return <GetStarted />;
 }
