@@ -21,7 +21,7 @@ export function logWorld(where: string, detail: unknown) {
 
 /**
  * World ID via IDKit, used for two things:
- *  - claiming a tuner seat (one per human), action `claim-tuner-seat`
+ *  - claiming a seat + HumanPass (one per human, ever), action `vtec-humanpass`
  *  - approving each agent submission (human in the loop), action
  *    `vtec-submit:<track>:<approval id>`, so every proof is bound to exactly
  *    one submission and can't be reused for another.
@@ -31,7 +31,10 @@ export const idkit = {
   appId: process.env.NEXT_PUBLIC_WLD_APP_ID ?? "",
   rpId: process.env.WLD_RP_ID ?? "",
   signingKey: process.env.RP_SIGNING_KEY ?? "",
-  seatAction: process.env.NEXT_PUBLIC_WLD_ACTION ?? "claim-tuner-seat",
+  // One proof per person, ever, per action (World ID 4.0 refuses a second one
+  // with "nullifier_replayed"). The HumanPass step has its own action so it
+  // doesn't collide with seats claimed before HumanPass existed.
+  seatAction: process.env.WLD_PASS_ACTION ?? "vtec-humanpass",
   // "staging" works with the World ID simulator instead of a real Orb.
   environment: (process.env.WLD_ENVIRONMENT ?? "staging") as "production" | "staging",
   // Staging proofs are only accepted while a 24h staging window is open for the
