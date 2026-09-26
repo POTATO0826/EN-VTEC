@@ -1,5 +1,6 @@
 import { findTrack } from "@/lib/catalog";
 import { hasBuild, load } from "@/lib/server/store";
+import { kick } from "@/lib/server/verification";
 
 // Submissions for one track with their verification progress. Nothing here is
 // a ranking: only verified entries count, and they live on /ranking.
@@ -8,6 +9,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
   if (!findTrack(id)) return Response.json({ error: "unknown_track" }, { status: 404 });
 
   const sessionId = new URL(request.url).searchParams.get("session");
+  kick().catch((e) => console.warn("[verify] kick failed:", e));
   const data = await load();
 
   const rows = data.submissions
@@ -26,6 +28,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
         speedup: s.speedup,
         // Made before builds were uploaded: nothing for verifiers to re-run.
         legacy: !hasBuild(s.buildSha256),
+        harness: !!s.harness,
         verifiers: {
           assigned: peers.length,
           revealed: peers.filter((a) => a.status === "revealed").length,
@@ -35,13 +38,24 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
       };
     });
 
+  // Where this session is in "approve with World ID -> pay the fee -> run".
   const used = new Set(data.submissions.map((s) => s.approvalId));
-  const openApproval = sessionId
-    ? data.approvals.some(
+  const open = sessionId
+    ? data.approvals.filter(
         (a) => a.sessionId === sessionId && a.trackId === id && a.status === "approved" && !used.has(a.id),
       )
-    : false;
+    : [];
+  const ready = open.find((a) => a.fee);
+  const unpaid = open.find((a) => !a.fee && a.kind === "worldid");
   const verified = sessionId ? data.seats.some((s) => s.sessionId === sessionId) : false;
 
-  return Response.json({ rows, openApproval, verified, payout: sessionId ? data.payouts[sessionId] ?? null : null });
+  return Response.json({
+    rows,
+    verified,
+    approval: ready
+      ? { id: ready.id, stage: "ready" as const }
+      : unpaid
+        ? { id: unpaid.id, stage: "needs_fee" as const }
+        : null,
+  });
 }

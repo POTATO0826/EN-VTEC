@@ -1,11 +1,15 @@
 import { findTrack } from "@/lib/catalog";
 import { load, update } from "@/lib/server/store";
-import { missingSuiEnv, sui } from "@/lib/server/sui";
 import { missingIdkitEnv, signedRequest } from "@/lib/server/world";
 
-// Permission for one agent submission. World ID verified users approve it with
-// World ID (free). Everyone else stakes SUI against it instead.
+// Permission for one agent submission: first a World ID approval (a real
+// person says yes to this one submission), then the 0.5 SUI process fee.
 export async function POST(request: Request) {
+  const missing = missingIdkitEnv();
+  if (missing.length > 0) {
+    return Response.json({ error: "world_not_configured", missing }, { status: 503 });
+  }
+
   const body = (await request.json().catch(() => null)) as {
     sessionId?: string;
     trackId?: string;
@@ -16,15 +20,8 @@ export async function POST(request: Request) {
   }
 
   const data = await load();
-  const verified = data.seats.some((s) => s.sessionId === body.sessionId);
-  const kind = verified ? "worldid" : "stake";
-
-  const missing = verified ? missingIdkitEnv() : missingSuiEnv();
-  if (missing.length > 0) {
-    return Response.json(
-      { error: verified ? "world_not_configured" : "sui_not_configured", missing },
-      { status: 503 },
-    );
+  if (!data.seats.some((s) => s.sessionId === body.sessionId)) {
+    return Response.json({ error: "no_seat" }, { status: 403 });
   }
 
   const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
@@ -34,27 +31,18 @@ export async function POST(request: Request) {
       id,
       sessionId: body.sessionId!,
       trackId: track.id,
-      kind,
+      kind: "worldid",
       action,
       status: "pending",
       nullifier: null,
       stake: null,
+      fee: null,
       at: new Date().toISOString(),
     });
   });
 
-  if (kind === "stake") {
-    return Response.json({
-      approvalId: id,
-      kind,
-      stakeMist: sui.stakeMist.toString(),
-      packageId: sui.packageId,
-      vaultId: sui.vaultId,
-    });
-  }
   return Response.json({
     approvalId: id,
-    kind,
     ...signedRequest(action, `Let my VTEC agent submit one build to ${track.name}`),
   });
 }

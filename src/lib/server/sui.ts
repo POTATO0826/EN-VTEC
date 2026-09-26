@@ -25,6 +25,7 @@ export const sui = {
   adminCapId: process.env.SUI_ADMIN_CAP_ID ?? "",
   adminKey: process.env.SUI_ADMIN_KEY ?? "",
   stakeMist: BigInt(Math.round(Number(process.env.NEXT_PUBLIC_STAKE_SUI ?? "1") * 1e9)),
+  feeMist: BigInt(Math.round(Number(process.env.NEXT_PUBLIC_FEE_SUI ?? "0.5") * 1e9)),
 };
 
 export function missingSuiEnv(): string[] {
@@ -54,6 +55,7 @@ const RoyaltyPaid = bcs.struct("RoyaltyPaid", {
   amount: bcs.u64(),
 });
 const VerifierDraw = bcs.struct("VerifierDraw", { submission: bcs.vector(bcs.u8()), seed: bcs.u256() });
+const FeePaid = bcs.struct("FeePaid", { submission: bcs.vector(bcs.u8()), payer: bcs.Address, amount: bcs.u64() });
 
 const sameBytes = (a: number[], b: number[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -78,6 +80,15 @@ export async function checkStake(digest: string, key: string) {
   );
   if (!stake) throw new Error("No matching stake in that transaction.");
   return { owner: stake.owner, amountMist: String(stake.amount) };
+}
+
+/** Checks a FeePaid event for this approval with the full process fee. */
+export async function checkFee(digest: string, key: string) {
+  const fee = decode(await eventsOf(digest), "FeePaid", FeePaid).find(
+    (e) => sameBytes(e.submission, keyBytes(key)) && BigInt(e.amount) >= sui.feeMist,
+  );
+  if (!fee) throw new Error("No matching fee payment in that transaction.");
+  return { payer: fee.payer, amountMist: String(fee.amount) };
 }
 
 /** Checks a RoyaltyPaid event for this submission, paid to the right tuner. */
@@ -120,6 +131,36 @@ export async function drawSeed(submissionId: string) {
   const draw = decode(res.events, "VerifierDraw", VerifierDraw)[0];
   if (!draw) throw new Error("Draw returned no seed.");
   return { seed: String(draw.seed), digest: res.digest };
+}
+
+/** The platform wallet: receives the platform harness's share of fees. */
+export function adminAddress() {
+  return admin().toSuiAddress();
+}
+
+/** Splits a paid fee evenly between the verifiers who ran the check. */
+export function distributeFee(key: string, recipients: string[]) {
+  return run((tx) =>
+    tx.moveCall({
+      target: `${sui.packageId}::vault::distribute_fee`,
+      arguments: [
+        tx.object(sui.adminCapId),
+        tx.object(sui.vaultId),
+        tx.pure.vector("u8", keyBytes(key)),
+        tx.pure.vector("address", recipients),
+      ],
+    }),
+  );
+}
+
+/** Nobody could verify it: the fee goes back to whoever paid. */
+export function refundFee(key: string) {
+  return run((tx) =>
+    tx.moveCall({
+      target: `${sui.packageId}::vault::refund_fee`,
+      arguments: [tx.object(sui.adminCapId), tx.object(sui.vaultId), tx.pure.vector("u8", keyBytes(key))],
+    }),
+  );
 }
 
 export function settleStake(key: string, outcome: "release" | "forfeit") {

@@ -70,6 +70,8 @@ export async function POST(request: Request) {
         !used.has(a.id),
     );
     if (!approval) return { error: "not_approved" as const };
+    // Legacy approvals (before the fee existed) can't be spent any more.
+    if (!approval.fee) return { error: "fee_unpaid" as const };
 
     const id = `sub_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     data.submissions.push({
@@ -97,8 +99,10 @@ export async function POST(request: Request) {
   if ("error" in outcome) {
     const detail =
       outcome.error === "not_approved"
-        ? "Approve this submission on the track page first (World ID, or a SUI stake if you're not verified)."
-        : "Pair this agent from the Get started page first.";
+        ? "Approve this submission with World ID on the track page first."
+        : outcome.error === "fee_unpaid"
+          ? "Pay the 0.5 SUI process fee on the track page first."
+          : "Pair this agent from the Get started page first.";
     return Response.json({ error: outcome.error, detail }, { status: outcome.error === "unknown_code" ? 404 : 403 });
   }
 

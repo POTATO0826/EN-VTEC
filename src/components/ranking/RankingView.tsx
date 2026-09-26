@@ -34,6 +34,7 @@ type Row = {
   payout: string | null;
   royalties: { count: number; mist: string };
   drawSource: string | null;
+  harness: boolean;
 };
 
 export default function RankingView() {
@@ -99,6 +100,7 @@ export default function RankingView() {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {row.verifiers.passed}/{row.verifiers.total} verifiers
+                    {row.harness ? <span className="block text-xs">incl. platform harness</span> : null}
                   </TableCell>
                   <TableCell>
                     <span className="flex items-center gap-1.5 text-sm">

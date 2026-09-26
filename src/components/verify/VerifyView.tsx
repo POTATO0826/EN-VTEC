@@ -9,7 +9,10 @@ import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { PageTitle } from "@/components/ui/step";
 import { CommandBlock } from "@/components/tuners/TrackView";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
+import { useCurrentAccount } from "@mysten/dapp-kit-react";
+import SlushConnect from "@/components/sui/SlushConnect";
 import { useSessionId, useSessionStatus } from "@/lib/session";
+import { SUI } from "@/lib/sui-tx";
 
 type Report = {
   compatible: boolean;
@@ -72,12 +75,16 @@ export default function VerifyView() {
     return () => clearInterval(timer);
   }, [refresh]);
 
+  const account = useCurrentAccount();
   const join = async () => {
-    const res = await postJson("/api/verify/join", { sessionId });
+    const res = await postJson("/api/verify/join", { sessionId, address: account?.address });
     if (res.ok) {
       toast.success("You're in the verifier pool", { description: "You'll be drawn for new submissions." });
       refresh();
-    } else toast.error("Couldn't join", { description: "You need a World ID seat first." });
+    } else {
+      const data = await res.json().catch(() => ({}));
+      toast.error("Couldn't join", { description: data.detail ?? "You need a World ID seat first." });
+    }
   };
 
   return (
@@ -107,13 +114,20 @@ export default function VerifyView() {
           <p className="text-sm text-muted-foreground">
             {me?.verifier
               ? `Reputation ${me.verifier.reputation >= 0 ? "+" : ""}${me.verifier.reputation} · ${me.poolSize} verifier${me.poolSize === 1 ? "" : "s"} in the pool`
-              : `Needs a World ID seat and a connected agent. ${me?.poolSize ?? 0} in the pool now; each submission needs ${me?.config.quorum ?? 3}.`}
+              : `Verifiers earn a share of each ${SUI.feeSui} SUI process fee. Needs World ID, a connected agent and Slush for payouts. ${me?.poolSize ?? 0} in the pool now.`}
           </p>
         </div>
         {me?.verifier ? null : status?.seat && status.agent ? (
-          <Button onClick={join} className="rounded-full px-5">
-            Join the pool
-          </Button>
+          account ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <SlushConnect />
+              <Button onClick={join} className="rounded-full px-5">
+                Join the pool
+              </Button>
+            </div>
+          ) : (
+            <SlushConnect label="Connect Slush to join" />
+          )
         ) : (
           <Button asChild variant="outline" className="rounded-full">
             <Link href="/">{status?.seat ? "Connect your agent" : "Verify with World ID first"}</Link>

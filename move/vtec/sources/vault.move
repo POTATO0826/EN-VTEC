@@ -1,5 +1,8 @@
-/// VTEC on Sui: stake escrow, verifier draw and tuner royalties.
+/// VTEC on Sui: process fees, stake escrow, verifier draw and tuner royalties.
 ///
+/// - Every submission pays a fixed process fee after its World ID approval.
+///   The fee waits in the Vault until verification ends, then is split evenly
+///   between the verifiers who actually ran the check.
 /// - Users who are not World ID verified stake SUI against a submission. The
 ///   stake sits in the shared Vault until verification ends; then the platform
 ///   either releases it back to the staker or forfeits it to the reward pool.
@@ -21,6 +24,9 @@ const EWrongAmount: u64 = 0;
 const EAlreadyStaked: u64 = 1;
 const ENoStake: u64 = 2;
 const EZeroPayment: u64 = 3;
+const EAlreadyPaid: u64 = 4;
+const ENoFee: u64 = 5;
+const ENoRecipients: u64 = 6;
 
 // === Objects ===
 
@@ -35,6 +41,15 @@ public struct Vault has key {
     stakes: Table<vector<u8>, StakeEntry>,
     /// Forfeited stakes, paid out to verifiers.
     rewards: Balance<SUI>,
+    /// Process fee per submission, in MIST.
+    fee_amount: u64,
+    /// submission key -> fee waiting to be split between its verifiers
+    fees: Table<vector<u8>, FeeEntry>,
+}
+
+public struct FeeEntry has store {
+    payer: address,
+    balance: Balance<SUI>,
 }
 
 public struct StakeEntry has store {
@@ -48,6 +63,9 @@ public struct Staked has copy, drop { submission: vector<u8>, owner: address, am
 public struct Released has copy, drop { submission: vector<u8>, owner: address, amount: u64 }
 public struct Forfeited has copy, drop { submission: vector<u8>, owner: address, amount: u64 }
 public struct VerifierDraw has copy, drop { submission: vector<u8>, seed: u256 }
+public struct FeePaid has copy, drop { submission: vector<u8>, payer: address, amount: u64 }
+public struct FeeDistributed has copy, drop { submission: vector<u8>, recipients: vector<address>, each: u64 }
+public struct FeeRefunded has copy, drop { submission: vector<u8>, payer: address, amount: u64 }
 public struct RoyaltyPaid has copy, drop {
     submission: vector<u8>,
     payer: address,
@@ -64,7 +82,56 @@ fun init(ctx: &mut TxContext) {
         stake_amount: 1_000_000_000,
         stakes: table::new(ctx),
         rewards: balance::zero(),
+        fee_amount: 500_000_000,
+        fees: table::new(ctx),
     });
+}
+
+// === Process fees ===
+
+/// Pay the process fee for one submission. Exactly `fee_amount`, once.
+public fun pay_fee(vault: &mut Vault, submission: vector<u8>, payment: Coin<SUI>, ctx: &TxContext) {
+    let amount = payment.value();
+    assert!(amount == vault.fee_amount, EWrongAmount);
+    assert!(!vault.fees.contains(submission), EAlreadyPaid);
+    vault.fees.add(submission, FeeEntry { payer: ctx.sender(), balance: payment.into_balance() });
+    event::emit(FeePaid { submission, payer: ctx.sender(), amount });
+}
+
+/// Verification finished: split the fee evenly between the verifiers who ran
+/// it. Any remainder from rounding goes to the first recipient.
+public fun distribute_fee(
+    _: &AdminCap,
+    vault: &mut Vault,
+    submission: vector<u8>,
+    recipients: vector<address>,
+    ctx: &mut TxContext,
+) {
+    assert!(vault.fees.contains(submission), ENoFee);
+    let n = recipients.length();
+    assert!(n > 0, ENoRecipients);
+    let FeeEntry { payer: _, mut balance } = vault.fees.remove(submission);
+    let each = balance.value() / n;
+    let mut i = n;
+    while (i > 1) {
+        i = i - 1;
+        transfer::public_transfer(coin::from_balance(balance.split(each), ctx), recipients[i]);
+    };
+    transfer::public_transfer(coin::from_balance(balance, ctx), recipients[0]);
+    event::emit(FeeDistributed { submission, recipients, each });
+}
+
+/// Nobody could verify it: give the fee back.
+public fun refund_fee(_: &AdminCap, vault: &mut Vault, submission: vector<u8>, ctx: &mut TxContext) {
+    assert!(vault.fees.contains(submission), ENoFee);
+    let FeeEntry { payer, balance } = vault.fees.remove(submission);
+    let amount = balance.value();
+    transfer::public_transfer(coin::from_balance(balance, ctx), payer);
+    event::emit(FeeRefunded { submission, payer, amount });
+}
+
+public fun set_fee_amount(_: &AdminCap, vault: &mut Vault, amount: u64) {
+    vault.fee_amount = amount;
 }
 
 // === Staking ===
@@ -129,6 +196,8 @@ public fun pay_royalty(submission: vector<u8>, tuner: address, payment: Coin<SUI
 // === Reads ===
 
 public fun stake_amount(vault: &Vault): u64 { vault.stake_amount }
+public fun fee_amount(vault: &Vault): u64 { vault.fee_amount }
+public fun fee_paid(vault: &Vault, submission: vector<u8>): bool { vault.fees.contains(submission) }
 public fun is_staked(vault: &Vault, submission: vector<u8>): bool { vault.stakes.contains(submission) }
 
 // === Tests ===

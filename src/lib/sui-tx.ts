@@ -9,6 +9,7 @@ export const SUI = {
   vaultId: process.env.NEXT_PUBLIC_SUI_VAULT_ID ?? "",
   stakeSui: Number(process.env.NEXT_PUBLIC_STAKE_SUI ?? "1"),
   royaltySui: Number(process.env.NEXT_PUBLIC_ROYALTY_SUI ?? "0.1"),
+  feeSui: Number(process.env.NEXT_PUBLIC_FEE_SUI ?? "0.5"),
 };
 
 export const suiReady = () => !!(SUI.packageId && SUI.vaultId);
@@ -16,15 +17,15 @@ export const suiReady = () => !!(SUI.packageId && SUI.vaultId);
 const toMist = (sui: number) => BigInt(Math.round(sui * 1e9));
 const keyBytes = (id: string) => Array.from(new TextEncoder().encode(id));
 
-/** Locks the stake for one approval in the vault. */
-export function stakeTx(approvalId: string) {
+/** Pays the process fee for one World ID-approved submission. */
+export function feeTx(approvalId: string) {
   const tx = new Transaction();
   tx.moveCall({
-    target: `${SUI.packageId}::vault::stake`,
+    target: `${SUI.packageId}::vault::pay_fee`,
     arguments: [
       tx.object(SUI.vaultId),
       tx.pure.vector("u8", keyBytes(approvalId)),
-      coinWithBalance({ balance: toMist(SUI.stakeSui) }),
+      coinWithBalance({ balance: toMist(SUI.feeSui) }),
     ],
   });
   return tx;

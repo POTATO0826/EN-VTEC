@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useCurrentAccount, useDAppKit } from "@mysten/dapp-kit-react";
-import { ArrowLeftIcon, ArrowUpRightIcon, CheckIcon, CoinsIcon, ScanFaceIcon } from "lucide-react";
+import { ArrowLeftIcon, ArrowUpRightIcon, CoinsIcon, ScanFaceIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
@@ -13,7 +13,7 @@ import SlushConnect from "@/components/sui/SlushConnect";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import type { Track } from "@/lib/catalog";
 import { useSessionId, useSessionStatus } from "@/lib/session";
-import { explorerTx, shortAddress, stakeTx, SUI, suiReady } from "@/lib/sui-tx";
+import { explorerTx, feeTx, SUI, suiReady } from "@/lib/sui-tx";
 
 type Row = {
   id: string;
@@ -25,11 +25,17 @@ type Row = {
   seconds: number;
   speedup: number | null;
   legacy: boolean;
+  harness: boolean;
   verifiers: { assigned: number; revealed: number; passed: number };
   at: string;
 };
 
-type TrackData = { rows: Row[]; openApproval: boolean; verified: boolean; payout: string | null };
+type TrackData = {
+  rows: Row[];
+  verified: boolean;
+  /** Where this session is: World ID done and fee unpaid, or ready to run. */
+  approval: { id: string; stage: "needs_fee" | "ready" } | null;
+};
 
 function useTrack(trackId: string, sessionId: string | null) {
   const [data, setData] = React.useState<TrackData | null>(null);
@@ -67,11 +73,13 @@ export default function TrackView({ track }: { track: Track }) {
   }, [data]);
 
   const hasAgent = !!status?.agent;
-  const approved = !!data?.openApproval;
   const verified = !!data?.verified;
+  const approved = !!data?.approval;
+  const paid = data?.approval?.stage === "ready";
 
-  const state = (n: 1 | 2 | 3): StepState => {
-    const done = [hasAgent, approved, false];
+  // Agent -> World ID approval -> 0.5 SUI process fee -> run.
+  const state = (n: 1 | 2 | 3 | 4): StepState => {
+    const done = [hasAgent && verified, approved, paid, false];
     const first = done.indexOf(false) + 1;
     return done[n - 1] ? "done" : first === n ? "active" : "locked";
   };
@@ -93,29 +101,32 @@ export default function TrackView({ track }: { track: Track }) {
           <section className="flex flex-col gap-3">
             <SectionTitle>Submit a build</SectionTitle>
 
-            <Step n={1} title="Agent connected" state={state(1)} summary={status?.agent?.hostname}>
-              <p className="mb-4 text-sm text-muted-foreground">Your agent isn&apos;t connected yet.</p>
+            <Step
+              n={1}
+              title="Verified human, agent connected"
+              state={state(1)}
+              summary={`World ID · ${status?.agent?.hostname ?? ""}`}
+            >
+              <p className="mb-4 text-sm text-muted-foreground">
+                {verified ? "Verified with World ID." : "You need to verify with World ID."}{" "}
+                {hasAgent ? "Agent connected." : "Your agent isn't connected yet."}
+              </p>
               <Button asChild variant="outline" className="rounded-full">
                 <Link href="/">Finish Get started</Link>
               </Button>
             </Step>
 
-            <Step
-              n={2}
-              title={verified ? "Approve this submission with World ID" : `Stake ${SUI.stakeSui} SUI for this submission`}
-              state={state(2)}
-              summary={verified ? "approved by a verified human" : `${SUI.stakeSui} SUI staked`}
-            >
-              {sessionId ? (
-                verified ? (
-                  <WorldApproval sessionId={sessionId} trackId={track.id} onDone={refresh} />
-                ) : (
-                  <StakeApproval sessionId={sessionId} trackId={track.id} onDone={refresh} />
-                )
+            <Step n={2} title="Approve this submission with World ID" state={state(2)} summary="approved by you">
+              {sessionId ? <WorldApproval sessionId={sessionId} trackId={track.id} onDone={refresh} /> : null}
+            </Step>
+
+            <Step n={3} title={`Pay the ${SUI.feeSui} SUI process fee`} state={state(3)} summary={`${SUI.feeSui} SUI paid`}>
+              {sessionId && data?.approval ? (
+                <FeePayment sessionId={sessionId} approvalId={data.approval.id} onDone={refresh} />
               ) : null}
             </Step>
 
-            <Step n={3} title="Run it with your agent" state={state(3)}>
+            <Step n={4} title="Run it with your agent" state={state(4)}>
               <p className="mb-3 text-sm text-muted-foreground">
                 The agent hashes your code (SHA-256), runs it and uploads the exact files. The submission is then{" "}
                 <span className="text-foreground">pending</span> until independent verifiers re-run it.
@@ -156,7 +167,12 @@ export default function TrackView({ track }: { track: Track }) {
               </div>
             </dl>
           </Card>
-          {sessionId ? <PayoutCard sessionId={sessionId} current={data?.payout ?? null} onSaved={refresh} /> : null}
+          <Card title="Process fee">
+            <p className="text-sm text-muted-foreground">
+              Each submission costs {SUI.feeSui} SUI, paid with Slush after your World ID approval. It&apos;s held on Sui
+              until verification ends, then split between the verifiers who re-ran your code.
+            </p>
+          </Card>
         </aside>
       </div>
     </>
@@ -180,7 +196,7 @@ function WorldApproval({ sessionId, trackId, onDone }: { sessionId: string; trac
           postJson("/api/approval/confirm", { approvalId: request.approvalId, sessionId, idkitResponse: proof })
         }
         onDone={() => {
-          toast.success("Approved", { description: "Now run the submit command." });
+          toast.success("Approved", { description: `Now pay the ${SUI.feeSui} SUI process fee.` });
           onDone();
         }}
       />
@@ -188,38 +204,32 @@ function WorldApproval({ sessionId, trackId, onDone }: { sessionId: string; trac
   );
 }
 
-function StakeApproval({ sessionId, trackId, onDone }: { sessionId: string; trackId: string; onDone: () => void }) {
+function FeePayment({ sessionId, approvalId, onDone }: { sessionId: string; approvalId: string; onDone: () => void }) {
   const account = useCurrentAccount();
   const dAppKit = useDAppKit();
   const [busy, setBusy] = React.useState(false);
 
-  const stake = async () => {
+  const pay = async () => {
     setBusy(true);
-    const id = toast.loading("Preparing stake…");
+    const id = toast.loading("Confirm the fee in Slush…");
     try {
-      const res = await postJson("/api/approval/start", { sessionId, trackId });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.missing ? `Missing in .env.local: ${data.missing.join(", ")}` : data.error);
-      if (data.kind !== "stake") throw new Error("You're verified: approve with World ID instead.");
-
-      toast.loading("Confirm in Slush…", { id });
-      const tx = await dAppKit.signAndExecuteTransaction({ transaction: stakeTx(data.approvalId) });
+      const tx = await dAppKit.signAndExecuteTransaction({ transaction: feeTx(approvalId) });
       if (!tx.Transaction) throw new Error(tx.FailedTransaction?.status.error?.message ?? "Transaction failed.");
       const digest = tx.Transaction.digest;
 
-      toast.loading("Checking the stake on Sui…", { id });
-      const check = await postJson("/api/approval/stake", { approvalId: data.approvalId, sessionId, digest });
+      toast.loading("Checking the payment on Sui…", { id });
+      const check = await postJson("/api/approval/fee", { approvalId, sessionId, digest });
       const result = await check.json();
       if (!check.ok) throw new Error(result.detail ?? result.error);
 
-      toast.success(`${SUI.stakeSui} SUI staked`, {
+      toast.success(`${SUI.feeSui} SUI paid`, {
         id,
-        description: "Held in escrow until verification ends.",
+        description: "Held on Sui until the verifiers finish.",
         action: { label: "View", onClick: () => window.open(explorerTx(digest), "_blank") },
       });
       onDone();
     } catch (e) {
-      toast.error("Stake didn't go through", { id, description: e instanceof Error ? e.message : String(e) });
+      toast.error("Payment didn't go through", { id, description: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
     }
@@ -228,55 +238,22 @@ function StakeApproval({ sessionId, trackId, onDone }: { sessionId: string; trac
   return (
     <div className="flex flex-col gap-4">
       <Explainer icon={<CoinsIcon />}>
-        You&apos;re not World ID verified, so each submission is backed by a {SUI.stakeSui} SUI stake held in the VTEC
-        vault on Sui. Verifiers confirm your build: you get it back. They reject it: it pays the verifiers.
+        Verifiers spend real compute re-running your code. The {SUI.feeSui} SUI fee pays them: it&apos;s held in the VTEC
+        vault on Sui and split between the verifiers who ran the check.
       </Explainer>
       {!suiReady() ? (
         <p className="text-sm text-[var(--warning)]">The Sui contract isn&apos;t configured yet (see .env.local).</p>
       ) : account ? (
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={stake} disabled={busy} className="w-fit rounded-full px-5">
-            {busy ? "Staking…" : `Stake ${SUI.stakeSui} SUI`}
+          <Button onClick={pay} disabled={busy} className="w-fit rounded-full px-5">
+            {busy ? "Paying…" : `Pay ${SUI.feeSui} SUI`}
           </Button>
           <SlushConnect />
         </div>
       ) : (
-        <SlushConnect label="Connect Slush to stake" />
+        <SlushConnect label="Connect Slush to pay" />
       )}
     </div>
-  );
-}
-
-function PayoutCard({ sessionId, current, onSaved }: { sessionId: string; current: string | null; onSaved: () => void }) {
-  const account = useCurrentAccount();
-  const save = async () => {
-    if (!account) return;
-    const res = await postJson("/api/payout", { sessionId, address: account.address });
-    if (res.ok) {
-      toast.success("Royalty address saved", { description: shortAddress(account.address) });
-      onSaved();
-    } else toast.error("Couldn't save that address");
-  };
-  return (
-    <Card title="Royalties">
-      <p className="text-sm text-muted-foreground">
-        People who use your verified code pay you {SUI.royaltySui} SUI each time, straight to this address.
-      </p>
-      {current ? (
-        <p className="mt-3 flex items-center gap-2 text-sm">
-          <CheckIcon className="size-4 text-[var(--success)]" />
-          <span className="vtec-num">{shortAddress(current)}</span>
-        </p>
-      ) : null}
-      <div className="mt-3 flex flex-col gap-2">
-        <SlushConnect />
-        {account && account.address !== current ? (
-          <Button variant="outline" size="sm" className="w-fit rounded-full" onClick={save}>
-            Receive royalties here
-          </Button>
-        ) : null}
-      </div>
-    </Card>
   );
 }
 
@@ -317,8 +294,9 @@ function Submissions({ rows }: { rows: Row[] }) {
                 {row.legacy
                   ? "old, not verifiable"
                   : row.verifiers.assigned === 0
-                    ? "waiting for pool"
+                    ? "drawing verifiers…"
                     : `${row.verifiers.revealed}/${row.verifiers.assigned} done`}
+                {row.harness ? <span className="block text-xs">incl. platform harness</span> : null}
               </TableCell>
               <TableCell className="vtec-num text-right">{row.speedup ? `${row.speedup.toFixed(2)}×` : "—"}</TableCell>
               <TableCell className="vtec-num text-muted-foreground">{row.buildSha256.slice(0, 12)}…</TableCell>

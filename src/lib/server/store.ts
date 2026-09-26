@@ -38,6 +38,8 @@ export type Approval = {
   status: "pending" | "approved";
   nullifier: string | null;
   stake: { digest: string; owner: string; amountMist: string } | null;
+  /** The 0.5 SUI process fee, paid after the World ID approval. */
+  fee: { digest: string; payer: string; amountMist: string } | null;
   at: string;
 };
 
@@ -68,6 +70,12 @@ export type Submission = {
   /** Median speedup reported by the verifiers who passed it. */
   speedup: number | null;
   payout: string | null;
+  /** How many verifiers must agree (fewer than 3 only when the pool is small). */
+  quorum?: number;
+  /** True when the platform harness had to stand in for missing verifiers. */
+  harness?: boolean;
+  /** Where the process fee went once verification ended. */
+  feeSettlement?: { digest: string; recipients: string[] } | null;
   at: string;
   settledAt: string | null;
 };
@@ -156,6 +164,7 @@ function upgrade(data: Data): Data {
   for (const a of data.approvals) {
     a.kind ??= "worldid";
     a.stake ??= null;
+    a.fee ??= null;
     a.nullifier ??= null;
     a.action ??= "";
   }

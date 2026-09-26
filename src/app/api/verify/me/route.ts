@@ -1,12 +1,13 @@
 import { findTrack } from "@/lib/catalog";
 import { load } from "@/lib/server/store";
-import { POOL_SIZE, QUORUM, revealOpen } from "@/lib/server/verification";
+import { kick, POOL_SIZE, QUORUM, revealOpen } from "@/lib/server/verification";
 
 // Everything the Verify page needs for one session.
 export async function GET(request: Request) {
   const sessionId = new URL(request.url).searchParams.get("session");
   if (!sessionId) return Response.json({ error: "missing_session" }, { status: 400 });
 
+  kick().catch((e) => console.warn("[verify] kick failed:", e));
   const data = await load();
   const verifier = data.verifiers.find((v) => v.sessionId === sessionId) ?? null;
 

@@ -1,9 +1,11 @@
 import { findTrack } from "@/lib/catalog";
+import { kick } from "@/lib/server/verification";
 import { load } from "@/lib/server/store";
 
 // Kernel Code Efficiency Ranking: ONLY submissions that independent verifiers
 // agreed on. Pending and verifying ones never appear here.
 export async function GET() {
+  kick().catch((e) => console.warn("[verify] kick failed:", e));
   const data = await load();
   const rows = data.submissions
     .filter((s) => s.status === "verified")
@@ -26,6 +28,7 @@ export async function GET() {
           mist: royalties.reduce((n, r) => n + BigInt(r.amountMist), BigInt(0)).toString(),
         },
         drawSource: s.draw?.source ?? null,
+        harness: !!s.harness,
         settledAt: s.settledAt,
       };
     })

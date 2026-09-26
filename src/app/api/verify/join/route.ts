@@ -4,8 +4,12 @@ import { assignPending } from "@/lib/server/verification";
 // Joining the verifier pool needs a World ID seat: verifiers must be unique,
 // real people, or one person could fill the whole pool and vote themselves in.
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { sessionId?: string } | null;
+  const body = (await request.json().catch(() => null)) as { sessionId?: string; address?: string } | null;
   if (!body?.sessionId) return Response.json({ error: "missing_session" }, { status: 400 });
+  // Verifiers are paid their share of process fees in SUI, so they need an address.
+  if (!/^0x[0-9a-fA-F]{64}$/.test(body.address ?? "")) {
+    return Response.json({ error: "no_address", detail: "Connect Slush so fees can be paid to you." }, { status: 400 });
+  }
 
   const data = await load();
   if (!data.seats.some((s) => s.sessionId === body.sessionId)) {
@@ -13,6 +17,7 @@ export async function POST(request: Request) {
   }
 
   await update((d) => {
+    d.payouts[body.sessionId!] = body.address!;
     if (!d.verifiers.some((v) => v.sessionId === body.sessionId)) {
       d.verifiers.push({ sessionId: body.sessionId!, joinedAt: new Date().toISOString(), reputation: 0 });
     }
