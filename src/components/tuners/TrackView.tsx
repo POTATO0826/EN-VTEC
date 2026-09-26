@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCurrentAccount, useDAppKit } from "@mysten/dapp-kit-react";
 import { ArrowLeftIcon, ArrowUpRightIcon, CoinsIcon, ScanFaceIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -9,9 +10,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { Step, type StepState } from "@/components/ui/step";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import SlushConnect from "@/components/sui/SlushConnect";
-import SubmissionDetail, { useSubmission } from "@/components/tuners/SubmissionDetail";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import type { Track } from "@/lib/catalog";
 import { useSessionId, useSessionStatus } from "@/lib/session";
@@ -60,36 +59,42 @@ export default function TrackView({ track }: { track: Track }) {
   const { status } = useSessionStatus(sessionId);
   const { data, refresh } = useTrack(track.id, sessionId);
 
-  // Tell the tuner the moment their new submission lands.
-  const seen = React.useRef<Set<string> | null>(null);
+  // Tell the tuner the moment their new submission lands, and again when the
+  // verifiers (or the platform harness) have decided it, with a link to the result.
+  const router = useRouter();
+  const seen = React.useRef<Map<string, Status> | null>(null);
   React.useEffect(() => {
     if (!data) return;
     const mine = data.rows.filter((r) => r.mine);
     if (seen.current) {
       for (const row of mine) {
-        if (!seen.current.has(row.id)) {
+        const before = seen.current.get(row.id);
+        if (before === undefined) {
           toast.success("Submission received", {
             description: "Verifiers are re-running it now.",
-            action: { label: "Watch", onClick: () => setOpenId(row.id) },
+            action: { label: "Watch", onClick: () => router.push(`/results/${row.id}`) },
           });
+        } else if (before !== row.status && (row.status === "verified" || row.status === "rejected")) {
+          const view = { label: "View result", onClick: () => router.push(`/results/${row.id}`) };
+          if (row.status === "verified") {
+            toast.success(`Verified at ${row.speedup?.toFixed(2)}×`, {
+              description: `${row.buildName} is on the ranking.`,
+              action: view,
+            });
+          } else {
+            toast("Not proven faster", { description: `${row.buildName} stays off the ranking.`, action: view });
+          }
         }
       }
     }
-    seen.current = new Set(mine.map((r) => r.id));
-  }, [data]);
+    seen.current = new Map(mine.map((r) => [r.id, r.status]));
+  }, [data, router]);
 
-  // Submission timeline dialog; /tuners/<track>#<submission id> opens it directly.
-  const [openId, setOpenId] = React.useState<string | null>(null);
+  // Older links open a submission as /tuners/<track>#<submission id>; its page is /results/<id> now.
   React.useEffect(() => {
-    const fromHash = () => {
-      const id = window.location.hash.slice(1);
-      if (id.startsWith("sub_")) setOpenId(id);
-    };
-    fromHash();
-    window.addEventListener("hashchange", fromHash);
-    return () => window.removeEventListener("hashchange", fromHash);
-  }, []);
-  const detail = useSubmission(openId, sessionId);
+    const id = window.location.hash.slice(1);
+    if (id.startsWith("sub_")) router.replace(`/results/${id}`);
+  }, [router]);
 
   const hasAgent = !!status?.agent;
   const verified = !!data?.verified;
@@ -161,7 +166,7 @@ export default function TrackView({ track }: { track: Track }) {
                 Kernel Code Efficiency Ranking <ArrowUpRightIcon className="size-3.5" />
               </Link>
             </div>
-            <Submissions rows={data?.rows ?? []} onOpen={setOpenId} />
+            <Submissions rows={data?.rows ?? []} onOpen={(id) => router.push(`/results/${id}`)} />
           </section>
         </div>
 
@@ -192,22 +197,6 @@ export default function TrackView({ track }: { track: Track }) {
         </aside>
       </div>
 
-      <Dialog
-        open={!!openId}
-        onOpenChange={(open) => {
-          if (open) return;
-          setOpenId(null);
-          if (window.location.hash) history.replaceState(null, "", window.location.pathname);
-        }}
-      >
-        <DialogContent className="max-h-[85vh] overflow-y-auto border-border bg-card sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>What happened to this submission</DialogTitle>
-            <DialogDescription>Every step, with the evidence. Updates live.</DialogDescription>
-          </DialogHeader>
-          {detail ? <SubmissionDetail detail={detail} /> : <div className="h-40 animate-pulse rounded-lg bg-muted/30" />}
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
@@ -345,7 +334,7 @@ function Submissions({ rows, onOpen }: { rows: Row[]; onOpen: (id: string) => vo
               </TableCell>
               <TableCell className="vtec-num text-right">{row.speedup ? `${row.speedup.toFixed(2)}×` : "—"}</TableCell>
               <TableCell className="vtec-num text-muted-foreground">{row.buildSha256.slice(0, 12)}…</TableCell>
-              <TableCell className="text-right text-xs whitespace-nowrap text-muted-foreground">Details →</TableCell>
+              <TableCell className="text-right text-xs whitespace-nowrap text-muted-foreground">Full result →</TableCell>
             </TableRow>
           ))}
         </TableBody>

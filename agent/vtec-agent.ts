@@ -268,7 +268,7 @@ function autotune(track: string, tune: TuneConfig) {
 
     const out = path.join(dir, `out${ext}`);
     const run = runOnce(dir, `{python} ${tune.file}`, seed, out);
-    const correct = sameTensor(baseOut, out, cfg.tolerance ?? 1e-3);
+    const correct = tensorError(baseOut, out) <= (cfg.tolerance ?? 1e-3);
     rmSync(out, { force: true });
     console.log(
       `  ${label.padEnd(28)} ${(run.ms / 1000).toFixed(2)} s  ${(base.ms / run.ms).toFixed(2)}×  ${correct ? "correct" : "WRONG, dropped"}`,
@@ -283,22 +283,27 @@ function autotune(track: string, tune: TuneConfig) {
   return winner.dir;
 }
 
-/** Two .npy tensors match within a float tolerance (different kernels round differently). */
-function sameTensor(a: string, b: string, tolerance: number) {
-  if (!existsSync(a) || !existsSync(b)) return false;
+/**
+ * How far two .npy tensors differ: the largest |a − b|. Infinity when the
+ * shapes differ, a value isn't finite, or a file is missing. Different
+ * kernels round differently, so a track sets the tolerance this must stay
+ * within.
+ */
+function tensorError(a: string, b: string) {
+  if (!existsSync(a) || !existsSync(b)) return Infinity;
   const check = spawnSync(
     PYTHON,
     [
       "-c",
       "import sys, numpy as np; a=np.load(sys.argv[1]); b=np.load(sys.argv[2]); " +
-        "print('ok' if a.shape==b.shape and np.isfinite(b).all() and float(np.abs(a-b).max())<=float(sys.argv[3]) else 'bad')",
+        "print(float(np.abs(a-b).max()) if a.shape==b.shape and np.isfinite(b).all() else 'inf')",
       a,
       b,
-      String(tolerance),
     ],
     { encoding: "utf8" },
   );
-  return check.stdout.trim().endsWith("ok");
+  const err = Number(check.stdout.trim());
+  return check.status === 0 && Number.isFinite(err) ? err : Infinity;
 }
 
 function median(values: number[]) {
@@ -396,6 +401,7 @@ async function submit() {
     files,
   });
   console.log(`✓ Submitted ${data.id}: pending verification. It reaches the ranking once verifiers agree.`);
+  console.log(`  Result: ${URL_BASE}/results/${data.id}`);
 }
 
 type Job = {
@@ -447,12 +453,16 @@ async function verifyOne(job: Job, runs: number) {
     const ext = path.extname(track.output ?? "out.bin");
     const baseOut = path.join(scratch, `baseline${ext}`);
     const candOut = path.join(scratch, `candidate${ext}`);
+    // The first run pays for kernel compilation and caches, so it's timed
+    // separately as the cold start and kept out of the steady-state numbers.
     console.log(`  warm-up…`);
-    runOnce(baselineDir, baselineRun, "0", baseOut);
-    runOnce(dir, candidateRun, "0", candOut);
+    const warmBase = runOnce(baselineDir, baselineRun, "0", baseOut).ms;
+    const warmCand = runOnce(dir, candidateRun, "0", candOut).ms;
+    const tolerance = track.tolerance ?? 1e-3;
     const base: number[] = [];
     const cand: number[] = [];
     let correct = true;
+    let maxError = 0;
     for (let i = 0; i < runs; i++) {
       const seed = String(randomBytes(2).readUInt16BE() % 360);
       rmSync(baseOut, { force: true });
@@ -470,11 +480,12 @@ async function verifyOne(job: Job, runs: number) {
       base.push(b.ms);
       cand.push(c.ms);
       // The harness checks the output files itself; it never trusts what a build prints.
-      const files = !existsSync(baseOut)
-        ? true
-        : track.compare === "tensor"
-          ? sameTensor(baseOut, candOut, track.tolerance ?? 1e-3)
-          : false;
+      let files = !existsSync(baseOut);
+      if (!files && track.compare === "tensor") {
+        const err = tensorError(baseOut, candOut);
+        maxError = Math.max(maxError, err);
+        files = err <= tolerance;
+      }
       const same = b.sha256 === c.sha256 && files;
       correct &&= same;
       console.log(
@@ -503,6 +514,13 @@ async function verifyOne(job: Job, runs: number) {
       noisePct: Math.round(noisePct * 10) / 10,
       speedup: Math.round(speedup * 1000) / 1000,
       pass,
+      // Everything behind those medians, so the result page can show it.
+      baselineMs: base.map(Math.round),
+      candidateMs: cand.map(Math.round),
+      warmupBaselineMs: Math.round(warmBase),
+      warmupCandidateMs: Math.round(warmCand),
+      maxError: track.compare === "tensor" ? (Number.isFinite(maxError) ? maxError : null) : null,
+      tolerance,
     };
     console.log(`  correct ${correct ? "yes" : "NO"} · speedup ${report.speedup}× · noise ±${report.noisePct}% → ${pass ? "PASS" : "FAIL"}`);
   }

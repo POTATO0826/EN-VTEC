@@ -97,6 +97,15 @@ export type VerifyReport = {
   noisePct: number;
   speedup: number;
   pass: boolean;
+  /** Every timed run, in order (reports from older agents only have the medians). */
+  baselineMs?: number[];
+  candidateMs?: number[];
+  /** The warm-up run, which pays for compilation and caches. */
+  warmupBaselineMs?: number;
+  warmupCandidateMs?: number;
+  /** Largest |candidate − baseline| over every run's output; null when the track has no tensor check. */
+  maxError?: number | null;
+  tolerance?: number;
 };
 
 export type Assignment = {

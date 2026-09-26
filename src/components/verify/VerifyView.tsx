@@ -2,17 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { DicesIcon, EyeOffIcon, LaptopIcon, ScanFaceIcon } from "lucide-react";
+import { ArrowUpRightIcon } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { PageTitle } from "@/components/ui/step";
 import { CommandBlock } from "@/components/tuners/TrackView";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
-import { useCurrentAccount } from "@mysten/dapp-kit-react";
-import SlushConnect from "@/components/sui/SlushConnect";
 import { useSessionId, useSessionStatus } from "@/lib/session";
-import { SUI } from "@/lib/sui-tx";
 
 type Report = {
   compatible: boolean;
@@ -64,13 +60,6 @@ type Me = {
   assignments: Assignment[];
 };
 
-const HOW = [
-  { icon: <DicesIcon />, title: "Drawn at random", text: "Up to 5 verifiers per submission, picked with Sui's on-chain randomness." },
-  { icon: <ScanFaceIcon />, title: "Approve with World ID", text: "A fresh World ID check for every job, so each verifier is one real person." },
-  { icon: <LaptopIcon />, title: "Your agent runs it", text: "Checks your hardware can run it, then times baseline vs candidate on your laptop." },
-  { icon: <EyeOffIcon />, title: "Commit, then reveal", text: "Results stay hidden until all verifiers commit, then the majority decides. Each earns a share of the fee." },
-];
-
 export default function VerifyView() {
   const sessionId = useSessionId();
   const { status } = useSessionStatus(sessionId);
@@ -87,65 +76,12 @@ export default function VerifyView() {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  const account = useCurrentAccount();
-  const join = async () => {
-    const res = await postJson("/api/verify/join", { sessionId, address: account?.address });
-    if (res.ok) {
-      toast.success("You're in the verifier pool", { description: "You'll be drawn for new submissions." });
-      refresh();
-    } else {
-      const data = await res.json().catch(() => ({}));
-      toast.error("Couldn't join", { description: data.detail ?? "You need a World ID seat first." });
-    }
-  };
-
   return (
     <>
       <PageTitle
         title="Verify"
         subtitle="Nothing reaches the Kernel Code Efficiency Ranking until independent, real people re-run it on their own hardware."
       />
-
-      <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {HOW.map((step, i) => (
-          <div
-            key={step.title}
-            className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both rounded-xl border border-border/60 bg-card/60 p-4 backdrop-blur-sm duration-500"
-            style={{ animationDelay: `${i * 80}ms` }}
-          >
-            <span className="text-muted-foreground [&>svg]:size-4">{step.icon}</span>
-            <p className="mt-3 text-sm font-medium">{step.title}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{step.text}</p>
-          </div>
-        ))}
-      </div>
-
-      <section className="mb-8 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border/60 bg-card/60 p-5 backdrop-blur-sm">
-        <div>
-          <p className="font-medium">{me?.verifier ? "You're a verifier" : "Join the verifier pool"}</p>
-          <p className="text-sm text-muted-foreground">
-            {me?.verifier
-              ? `Reputation ${me.verifier.reputation >= 0 ? "+" : ""}${me.verifier.reputation} · ${me.poolSize} verifier${me.poolSize === 1 ? "" : "s"} in the pool`
-              : `Verifiers earn a share of each ${SUI.feeSui} SUI process fee. Needs World ID, a connected agent and Slush for payouts. ${me?.poolSize ?? 0} in the pool now.`}
-          </p>
-        </div>
-        {me?.verifier ? null : status?.seat && status.agent ? (
-          account ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <SlushConnect />
-              <Button onClick={join} className="rounded-full px-5">
-                Join the pool
-              </Button>
-            </div>
-          ) : (
-            <SlushConnect label="Connect Slush to join" />
-          )
-        ) : (
-          <Button asChild variant="outline" className="rounded-full">
-            <Link href="/">{status?.seat ? "Connect your agent" : "Verify with World ID first"}</Link>
-          </Button>
-        )}
-      </section>
 
       {me && me.harness.jobs.length > 0 ? (
         <section className="mb-8 flex flex-col gap-3">
@@ -158,28 +94,34 @@ export default function VerifyView() {
             ) : null}
           </h2>
           <p className="text-sm text-muted-foreground">
-            While the pool is small, the platform runs the same verifier agent on its own machine.
+            While the pool is small, the platform runs the same verifier agent on its own machine. Open a job for the
+            full result: skill chart, every run and the on-chain receipts.
           </p>
           <div className="overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
             {me.harness.jobs.map((job) => (
               <Link
                 key={job.submissionId}
-                href={`/tuners/${job.trackId}#${job.submissionId}`}
+                href={`/results/${job.submissionId}`}
                 className="flex items-center justify-between gap-4 border-b border-border/40 px-4 py-3 text-sm text-foreground transition-colors last:border-0 hover:bg-accent/40 hover:text-foreground"
               >
                 <span>
                   {job.track} · <span className="text-muted-foreground">{job.buildName}</span>
                 </span>
-                <span
-                  className={
-                    job.pass === null
-                      ? "text-muted-foreground"
-                      : job.pass
-                        ? "vtec-num text-[var(--success)]"
-                        : "vtec-num text-[var(--danger)]"
-                  }
-                >
-                  {job.speedup !== null ? `${job.speedup.toFixed(2)}× ${job.pass ? "pass" : "fail"}` : "running…"}
+                <span className="inline-flex items-center gap-3">
+                  <span
+                    className={
+                      job.pass === null
+                        ? "text-muted-foreground"
+                        : job.pass
+                          ? "vtec-num text-[var(--success)]"
+                          : "vtec-num text-[var(--danger)]"
+                    }
+                  >
+                    {job.speedup !== null ? `${job.speedup.toFixed(2)}× ${job.pass ? "pass" : "fail"}` : "running…"}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    Full result <ArrowUpRightIcon className="size-3.5" />
+                  </span>
                 </span>
               </Link>
             ))}
@@ -228,7 +170,12 @@ function Job({
             code {sub.buildSha256.slice(0, 16)}… · submitted on {sub.gpu}
           </p>
         </div>
-        <StatusBadge status={sub.status} />
+        <span className="flex items-center gap-3">
+          <StatusBadge status={sub.status} />
+          <Link href={`/results/${sub.id}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
+            Full result <ArrowUpRightIcon className="size-3.5" />
+          </Link>
+        </span>
       </div>
 
       <div className="mt-4">

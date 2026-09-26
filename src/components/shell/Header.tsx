@@ -8,6 +8,7 @@ import OrbLogo from "./OrbLogo";
 const NAV = [
   { href: "/", label: "Get started" },
   { href: "/tuners", label: "Tuners" },
+  { href: "/results", label: "Results" },
   { href: "/verify", label: "Verify" },
   { href: "/ranking", label: "Ranking" },
 ];

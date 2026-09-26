@@ -110,3 +110,13 @@ body {
     transform: translateY(0);
   }
 }
+/* /results: the kernel verification constellation. Archivo for its display type; chart colours. */
+@theme {
+  --font-display: "Archivo", system-ui, sans-serif;
+  --color-kv-ice: #cfe6ff;
+}
+/* Full-bleed pages drop main's centred container. */
+main:has([data-full-bleed]) {
+  max-width: none;
+  padding: 0;
+}
