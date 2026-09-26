@@ -3,7 +3,7 @@ import ModelsGrid from "@/components/models/ModelsGrid";
 import { MODELS, onMachine } from "@/lib/models";
 import { yourMachine } from "@/lib/server/machine";
 
-export const metadata = { title: "Models · VTEC" };
+export const metadata = { title: "Models · Opti-om" };
 
 export default async function ModelsPage() {
   // The fit depends on the laptop your agent paired from, so render per request.

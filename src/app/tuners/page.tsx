@@ -4,7 +4,7 @@ import { ArrowRightIcon } from "lucide-react";
 import { PageTitle } from "@/components/ui/step";
 import { TRACKS } from "@/lib/catalog";
 
-export const metadata = { title: "Tuners · VTEC" };
+export const metadata = { title: "Tuners · Opti-om" };
 
 export default function TunersPage() {
   return (

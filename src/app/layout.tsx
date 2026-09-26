@@ -5,7 +5,7 @@ import Header from "@/components/shell/Header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VTEC",
+  title: "Opti-om",
   description: "Tuned local agents for Web3 workloads, verified by real humans and settled on Sui.",
 };
 

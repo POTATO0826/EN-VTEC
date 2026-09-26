@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "cn";
-import OrbLogo from "./OrbLogo";
 
 const NAV = [
   { href: "/", label: "Get started" },
@@ -20,8 +19,9 @@ export default function Header() {
     <header className="relative z-10 border-b border-border/60">
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-6 px-4 md:px-8">
         <Link href="/" className="flex items-center gap-2.5 text-foreground hover:text-foreground">
-          <OrbLogo size={28} />
-          <span className="text-sm font-semibold tracking-[0.08em]">VTEC</span>
+          {/* The logo keeps its light tile: its navy chip would vanish on the dark header. */}
+          <img src="/opti-om-logo.png" alt="" width={30} height={30} className="size-[30px] rounded-md bg-[#f5f5f5] p-px" />
+          <span className="text-sm font-semibold tracking-[0.04em]">Opti-om</span>
         </Link>
         <nav className="flex items-center gap-0.5 overflow-x-auto">
           {NAV.map((item) => (
