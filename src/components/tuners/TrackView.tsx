@@ -2,9 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCurrentAccount, useDAppKit } from "@mysten/dapp-kit-react";
-import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, CoinsIcon, LoaderIcon, ScanFaceIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, CheckIcon, CoinsIcon, LoaderIcon, ScanFaceIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,7 +12,6 @@ import { Step, type StepState } from "@/components/ui/step";
 import SlushConnect from "@/components/sui/SlushConnect";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import type { Track } from "@/lib/catalog";
-import { submissionHref } from "@/lib/models";
 import { useSessionId, useSessionStatus } from "@/lib/session";
 import { explorerTx, feeTx, SUI, suiReady } from "@/lib/sui-tx";
 
@@ -62,7 +60,6 @@ export default function TrackView({ track }: { track: Track }) {
 
   // Tell the tuner the moment their new submission lands, and again when the
   // verifiers (or the platform harness) have decided it, with a link to the result.
-  const router = useRouter();
   const [running, setRunning] = React.useState<string | null>(null);
   const seen = React.useRef<Map<string, Status> | null>(null);
   React.useEffect(() => {
@@ -74,7 +71,7 @@ export default function TrackView({ track }: { track: Track }) {
         if (before === undefined) {
           setRunning(row.id);
         } else if (before !== row.status && (row.status === "verified" || row.status === "rejected")) {
-          const view = { label: "View result", onClick: () => router.push(submissionHref(track.id, row.id)) };
+          const view = { label: "View result", onClick: () => setRunning(row.id) };
           if (row.status === "verified") {
             toast.success(`Verified at ${row.speedup?.toFixed(2)}×`, {
               description: `${row.buildName} is on the ranking.`,
@@ -87,7 +84,7 @@ export default function TrackView({ track }: { track: Track }) {
       }
     }
     seen.current = new Map(mine.map((r) => [r.id, r.status]));
-  }, [data, router]);
+  }, [data]);
 
   // #run_<id> (the agent prints it) opens the running dialog for that submission;
   // older #<id> links go to the submission's result page.
@@ -95,12 +92,12 @@ export default function TrackView({ track }: { track: Track }) {
     const fromHash = () => {
       const id = window.location.hash.slice(1);
       if (id.startsWith("run_")) setRunning(id.slice(4));
-      else if (id.startsWith("sub_")) router.replace(submissionHref(track.id, id));
+      else if (id.startsWith("sub_")) setRunning(id);
     };
     fromHash();
     window.addEventListener("hashchange", fromHash);
     return () => window.removeEventListener("hashchange", fromHash);
-  }, [router, track.id]);
+  }, []);
 
   const hasAgent = !!status?.agent;
   const verified = !!data?.verified;
@@ -190,7 +187,6 @@ export default function TrackView({ track }: { track: Track }) {
 
       <RunningDialog
         row={data?.rows.find((r) => r.id === running) ?? null}
-        href={running ? submissionHref(track.id, running) : "/models"}
         onClose={() => {
           setRunning(null);
           if (window.location.hash.startsWith("#run_")) history.replaceState(null, "", window.location.pathname);
@@ -287,10 +283,10 @@ function FeePayment({ sessionId, approvalId, onDone }: { sessionId: string; appr
 
 /**
  * The small page that pops up while a submission is being tested: what has
- * happened so far, what is running now, and the verdict once it lands. OK
- * closes it; the verdict toast and /results keep the rest.
+ * happened so far and what is running now, then a simple result card once
+ * the verdict lands. OK closes it; the full evidence is under Models.
  */
-function RunningDialog({ row, href, onClose }: { row: Row | null; href: string; onClose: () => void }) {
+function RunningDialog({ row, onClose }: { row: Row | null; onClose: () => void }) {
   const decided = row?.status === "verified" || row?.status === "rejected";
   const drawn = !!row && row.verifiers.assigned > 0;
   const ran = !!row && drawn && row.verifiers.revealed >= row.verifiers.assigned;
@@ -345,10 +341,11 @@ function RunningDialog({ row, href, onClose }: { row: Row | null; href: string; 
             {decided ? "Your kernel has been tested" : "Your kernel is running"}
           </DialogTitle>
           <DialogDescription>
-            {decided ? "Every step is on the result page, with the evidence." : "Updates live. You can close this and keep working."}
+            {decided ? `${row!.buildName} on ${row!.gpu}` : "Updates live. You can close this and keep working."}
           </DialogDescription>
         </DialogHeader>
-        <ol className="flex flex-col gap-3">
+        {decided && row ? <ResultCard row={row} /> : null}
+        <ol className={`flex flex-col gap-3 ${decided ? "hidden" : ""}`}>
           {steps.map((step) => (
             <li key={step.title} className="flex gap-3">
               <span
@@ -377,20 +374,57 @@ function RunningDialog({ row, href, onClose }: { row: Row | null; href: string; 
             </li>
           ))}
         </ol>
-        <div className="mt-2 flex flex-wrap justify-end gap-2">
-          {decided && row ? (
-            <Button asChild className="rounded-full px-5">
-              <Link href={href}>
-                See the full result <ArrowRightIcon />
-              </Link>
-            </Button>
-          ) : null}
-          <Button variant={decided ? "outline" : "default"} className="rounded-full px-5" onClick={onClose}>
+        <div className="mt-2 flex justify-end">
+          <Button className="rounded-full px-6" onClick={onClose}>
             OK
           </Button>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The verdict in a glance: speedup, what it means, who checked it. */
+function ResultCard({ row }: { row: Row }) {
+  const verified = row.status === "verified";
+  const color = verified ? "var(--success)" : "var(--danger)";
+  const facts: [string, string][] = [
+    ["Verifiers", `${row.verifiers.passed}/${row.verifiers.assigned} passed${row.harness ? " · platform harness" : ""}`],
+    ["Your run", `${row.seconds.toFixed(2)} s on ${row.gpu}`],
+    ["Code", `${row.buildSha256.slice(0, 16)}…`],
+  ];
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-black/20 p-4">
+        <span
+          className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border-2"
+          style={{ borderColor: color, color }}
+        >
+          {verified ? <CheckIcon className="size-5" /> : <XIcon className="size-5" />}
+        </span>
+        <div className="min-w-0">
+          <div className={`leading-none font-medium ${verified ? "vtec-num text-3xl" : "text-2xl"}`} style={{ color }}>
+            {verified && row.speedup ? `${row.speedup.toFixed(2)}× faster` : "Not proven faster"}
+          </div>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {verified
+              ? "Same output as the baseline, clearly faster. It is on the ranking and can be licensed."
+              : "Inside the noise, or a different output. It stays off the ranking; try another build."}
+          </p>
+        </div>
+      </div>
+      <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+        {facts.map(([k, v]) => (
+          <React.Fragment key={k}>
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className="[overflow-wrap:anywhere]">{v}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+      {verified ? (
+        <p className="micro">The chart, harness conditions and receipts are under Models, whenever you want them.</p>
+      ) : null}
+    </div>
   );
 }
 
