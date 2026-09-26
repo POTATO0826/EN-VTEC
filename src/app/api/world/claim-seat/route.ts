@@ -1,7 +1,7 @@
 import type { IDKitResult } from "@worldcoin/idkit";
 import { update } from "@/lib/server/store";
 import { adminReady, findHumanPass, mintHumanPass } from "@/lib/server/sui";
-import { idkit, missingIdkitEnv, verifyProof } from "@/lib/server/world";
+import { idkit, logWorld, missingIdkitEnv, verifyProof } from "@/lib/server/world";
 
 const SUI_ADDRESS = /^0x[0-9a-fA-F]{64}$/;
 
@@ -25,8 +25,11 @@ export async function POST(request: Request) {
   }
   const address = body.address!.toLowerCase();
 
-  const verdict = await verifyProof(body.idkitResponse, idkit.seatAction, address);
+  // "sui:" prefix: a bare 0x... string is hashed as raw bytes by IDKit but may
+  // be read as text elsewhere; a text prefix makes every side hash the same.
+  const verdict = await verifyProof(body.idkitResponse, idkit.seatAction, `sui:${address}`);
   if (!verdict.ok) {
+    logWorld("claim-seat", verdict);
     return Response.json({ error: verdict.error, code: verdict.code, detail: verdict.detail }, { status: verdict.status });
   }
 

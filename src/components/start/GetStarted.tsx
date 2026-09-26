@@ -159,7 +159,7 @@ function HumanPassSteps({ sessionId, onDone }: { sessionId: string; onDone: () =
         <WorldIdButton
           label="Verify with World ID"
           sessionId={sessionId}
-          signal={account?.address.toLowerCase()}
+          signal={account ? `sui:${account.address.toLowerCase()}` : undefined}
           disabled={!account}
           start={() => postJson("/api/world/rp-signature", {})}
           confirm={(proof) =>

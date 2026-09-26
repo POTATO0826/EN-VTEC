@@ -1,6 +1,6 @@
 import type { IDKitResult } from "@worldcoin/idkit";
 import { load, update } from "@/lib/server/store";
-import { verifyProof } from "@/lib/server/world";
+import { logWorld, verifyProof } from "@/lib/server/world";
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
@@ -20,6 +20,7 @@ export async function POST(request: Request) {
 
   const verdict = await verifyProof(body.idkitResponse, assignment.action, body.sessionId);
   if (!verdict.ok) {
+    logWorld("verify/approve/confirm", verdict);
     return Response.json({ error: verdict.error, code: verdict.code, detail: verdict.detail }, { status: verdict.status });
   }
 

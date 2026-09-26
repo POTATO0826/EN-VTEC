@@ -1,6 +1,6 @@
 import type { IDKitResult } from "@worldcoin/idkit";
 import { load, update } from "@/lib/server/store";
-import { verifyProof } from "@/lib/server/world";
+import { logWorld, verifyProof } from "@/lib/server/world";
 
 // Checks the human's World ID proof for one pending approval. The proof must
 // carry this approval's action and this session as the signal.
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
 
   const verdict = await verifyProof(body.idkitResponse, approval.action, body.sessionId);
   if (!verdict.ok) {
+    logWorld("approval/confirm", verdict);
     return Response.json(
       { error: verdict.error, code: verdict.code, detail: verdict.detail },
       { status: verdict.status },

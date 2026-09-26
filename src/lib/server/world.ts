@@ -2,6 +2,22 @@ import "server-only";
 import type { IDKitResult } from "@worldcoin/idkit";
 import { hashSignal } from "@worldcoin/idkit-core/hashing";
 import { signRequest } from "@worldcoin/idkit-core/signing";
+import { appendFileSync, mkdirSync } from "node:fs";
+import path from "node:path";
+
+/** Why World refused a proof, kept in .data/world.log for debugging. */
+export function logWorld(where: string, detail: unknown) {
+  try {
+    mkdirSync(path.join(process.cwd(), ".data"), { recursive: true });
+    appendFileSync(
+      path.join(process.cwd(), ".data", "world.log"),
+      `${new Date().toISOString()} ${where} ${JSON.stringify(detail)}
+`,
+    );
+  } catch {
+    /* logging must never break verification */
+  }
+}
 
 /**
  * World ID via IDKit, used for two things:
