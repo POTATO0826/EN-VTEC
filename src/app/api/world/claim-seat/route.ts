@@ -28,9 +28,13 @@ export async function POST(request: Request) {
   );
   if (!bound) return Response.json({ error: "signal_mismatch" }, { status: 400 });
 
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (idkit.environment !== "production" && idkit.stagingToken) {
+    headers["x-staging-verification-token"] = idkit.stagingToken;
+  }
   const res = await fetch(`https://developer.world.org/api/v4/verify/${idkit.rpId}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body.idkitResponse),
   });
   const verdict = (await res.json().catch(() => ({}))) as {

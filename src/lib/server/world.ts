@@ -12,6 +12,9 @@ export const idkit = {
   action: process.env.NEXT_PUBLIC_WLD_ACTION ?? "claim-tuner-seat",
   // "staging" works with the World ID simulator instead of a real Orb.
   environment: (process.env.WLD_ENVIRONMENT ?? "staging") as "production" | "staging",
+  // Staging proofs are only accepted while a 24h staging window is open for the
+  // app, and must carry the token that window issued.
+  stagingToken: process.env.WLD_STAGING_TOKEN ?? "",
 };
 
 export function missingIdkitEnv(): string[] {
