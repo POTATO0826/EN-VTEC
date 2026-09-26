@@ -10,6 +10,7 @@ const NAV = [
   { href: "/tuners", label: "Tuners" },
   { href: "/models", label: "Models" },
   { href: "/verify", label: "Verify" },
+  { href: "/earnings", label: "Earnings" },
 ];
 
 export default function Header() {

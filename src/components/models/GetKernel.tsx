@@ -16,7 +16,7 @@ export type Purchasable = {
   track: string;
   speedup: number | null;
   verifiers: { total: number };
-  listing: { id: string } | null;
+  listing: { id: string; royalties?: string } | null;
 };
 
 /* Buy (one PTB: pay + split + License) -> download (sign -> check -> link). */
@@ -41,11 +41,14 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
   }, [check]);
 
   const buy = async () => {
-    if (!row?.listing) return;
+    if (!row?.listing?.royalties) {
+      toast.error("This listing predates recoverable royalties and must be relisted.");
+      return;
+    }
     setBusy("buy");
     const id = toast.loading("Confirm the purchase in Slush…");
     try {
-      const tx = await dAppKit.signAndExecuteTransaction({ transaction: buyTx(row.listing.id) });
+      const tx = await dAppKit.signAndExecuteTransaction({ transaction: buyTx(row.listing.id, row.listing.royalties) });
       if (!tx.Transaction) throw new Error(tx.FailedTransaction?.status.error?.message ?? "Transaction failed.");
       const digest = tx.Transaction.digest;
       toast.success("License minted to your wallet", {

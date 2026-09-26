@@ -8,7 +8,8 @@
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "bun test tests",
     "agent": "bun agent/vtec-agent.ts"
   },
   "dependencies": {

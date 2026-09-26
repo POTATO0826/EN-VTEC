@@ -74,7 +74,7 @@ export type Submission = {
   /** Where the process fee went once verification ended. */
   feeSettlement?: { digest: string; recipients: string[] } | null;
   /** On sale once verified: the shared Listing on Sui. */
-  listing?: { id: string; digest: string; lineage: string } | null;
+  listing?: { id: string; digest: string; lineage: string; royalties?: string } | null;
   at: string;
   settledAt: string | null;
 };

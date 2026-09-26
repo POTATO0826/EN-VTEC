@@ -242,7 +242,7 @@ export async function tally(submissionId: string, revealedId?: string) {
       });
       await update((d) => {
         const s = d.submissions.find((x) => x.id === submissionId);
-        if (s) s.listing = { id: listed.listingId, digest: listed.digest, lineage };
+        if (s) s.listing = { id: listed.listingId, digest: listed.digest, lineage, royalties: listed.royalties };
       });
     } catch (e) {
       console.warn("[verify] listing failed:", e instanceof Error ? e.message : e);

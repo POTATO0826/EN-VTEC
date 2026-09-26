@@ -16,7 +16,7 @@ export type SignedRequest = {
   app_id: `app_${string}`;
   action: string;
   action_description?: string;
-  environment: "production" | "staging";
+  environment: "production" | "staging" | "sandbox";
   rp_context: RpContext;
   [extra: string]: unknown;
 };
