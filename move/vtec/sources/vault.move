@@ -17,6 +17,8 @@ use sui::event;
 use sui::random::Random;
 use sui::sui::SUI;
 use sui::table::{Self, Table};
+use vtec::admin::AdminCap;
+use vtec::human::HumanPass;
 
 // === Errors ===
 
@@ -29,9 +31,6 @@ const ENoFee: u64 = 5;
 const ENoRecipients: u64 = 6;
 
 // === Objects ===
-
-/// Held by the platform backend. Only it can settle stakes.
-public struct AdminCap has key, store { id: UID }
 
 public struct Vault has key {
     id: UID,
@@ -76,7 +75,6 @@ public struct RoyaltyPaid has copy, drop {
 // === Setup ===
 
 fun init(ctx: &mut TxContext) {
-    transfer::transfer(AdminCap { id: object::new(ctx) }, ctx.sender());
     transfer::share_object(Vault {
         id: object::new(ctx),
         stake_amount: 1_000_000_000,
@@ -90,7 +88,9 @@ fun init(ctx: &mut TxContext) {
 // === Process fees ===
 
 /// Pay the process fee for one submission. Exactly `fee_amount`, once.
-public fun pay_fee(vault: &mut Vault, submission: vector<u8>, payment: Coin<SUI>, ctx: &TxContext) {
+/// Needs the payer's HumanPass: owned objects can only be used by their owner,
+/// so this is the chain itself checking the payer passed World ID.
+public fun pay_fee(vault: &mut Vault, _pass: &HumanPass, submission: vector<u8>, payment: Coin<SUI>, ctx: &TxContext) {
     let amount = payment.value();
     assert!(amount == vault.fee_amount, EWrongAmount);
     assert!(!vault.fees.contains(submission), EAlreadyPaid);

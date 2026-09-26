@@ -249,9 +249,16 @@ function FeePayment({ sessionId, approvalId, onDone }: { sessionId: string; appr
 
   const pay = async () => {
     setBusy(true);
-    const id = toast.loading("Confirm the fee in Slush…");
+    const id = toast.loading("Checking your HumanPass on Sui…");
     try {
-      const tx = await dAppKit.signAndExecuteTransaction({ transaction: feeTx(approvalId) });
+      // The contract only takes fees from wallets holding a HumanPass (World ID).
+      const passRes = await fetch(`/api/human-pass?address=${account!.address}`);
+      const { pass } = await passRes.json();
+      if (!pass) {
+        throw new Error("This wallet has no HumanPass. Verify with World ID on Get started using this Slush wallet.");
+      }
+      toast.loading("Confirm the fee in Slush…", { id });
+      const tx = await dAppKit.signAndExecuteTransaction({ transaction: feeTx(approvalId, pass) });
       if (!tx.Transaction) throw new Error(tx.FailedTransaction?.status.error?.message ?? "Transaction failed.");
       const digest = tx.Transaction.digest;
 

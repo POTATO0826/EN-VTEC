@@ -1,9 +1,10 @@
 import { findTrack } from "@/lib/catalog";
-import { kick } from "@/lib/server/verification";
 import { load } from "@/lib/server/store";
+import { kick } from "@/lib/server/verification";
 
-// Kernel Code Efficiency Ranking: ONLY submissions that independent verifiers
-// agreed on. Pending and verifying ones never appear here.
+// Kernel Code Efficiency Ranking: ONLY submissions that verifiers agreed on.
+// Pending and verifying ones never appear here. Each verified kernel has a
+// Listing on Sui that buyers purchase a License from.
 export async function GET() {
   kick().catch((e) => console.warn("[verify] kick failed:", e));
   const data = await load();
@@ -11,7 +12,6 @@ export async function GET() {
     .filter((s) => s.status === "verified")
     .map((s) => {
       const reports = data.assignments.filter((a) => a.submissionId === s.id && a.report?.compatible);
-      const royalties = data.royalties.filter((r) => r.submissionId === s.id);
       return {
         id: s.id,
         track: findTrack(s.trackId)?.name ?? s.trackId,
@@ -21,14 +21,9 @@ export async function GET() {
         gpu: s.gpu,
         speedup: s.speedup,
         verifiers: { passed: reports.filter((a) => a.report!.pass).length, total: reports.length },
-        humanTuner: data.seats.some((x) => x.sessionId === s.sessionId),
-        payout: s.payout,
-        royalties: {
-          count: royalties.length,
-          mist: royalties.reduce((n, r) => n + BigInt(r.amountMist), BigInt(0)).toString(),
-        },
-        drawSource: s.draw?.source ?? null,
         harness: !!s.harness,
+        tuner: data.payouts[s.sessionId] ?? null,
+        listing: s.listing ?? null,
         settledAt: s.settledAt,
       };
     })

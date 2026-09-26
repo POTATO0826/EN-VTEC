@@ -18,7 +18,7 @@ function hashFiles(files: Record<string, string>) {
 
 // Called by the local agent after it ran a build. The submission is recorded
 // as PENDING: it only reaches the ranking once independent verifiers agree.
-// Needs an approval (World ID or SUI stake) for this session and track, and
+// Needs a World ID approval with its process fee paid, for this session and track, and
 // each approval can be spent once.
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       status: "pending",
       draw: null,
       speedup: null,
-      payout: data.payouts[agent.sessionId] ?? approval.stake?.owner ?? null,
+      payout: data.payouts[agent.sessionId] ?? null,
       at: new Date().toISOString(),
       settledAt: null,
     });

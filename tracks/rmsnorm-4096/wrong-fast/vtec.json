@@ -1,0 +1,7 @@
+{
+  "name": "wrong-fast (skips the reduction)",
+  "run": "{python} rmsnorm.py",
+  "requires": {
+    "nvidiaDriver": "525"
+  }
+}

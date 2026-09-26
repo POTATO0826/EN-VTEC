@@ -15,7 +15,7 @@ type Stage = { label: string; detail: string; href: string; state: StageState };
  * and what to do next. Every stage links to the page where it happens.
  */
 function stagesFor(status: SessionStatus | null): { stages: Stage[]; next: string } {
-  const setup = !!status?.seat && !!status?.agent;
+  const setup = !!status?.seat && !!status?.humanPass && !!status?.agent;
   const approval = status?.approval ?? null;
   const sub = status?.submission ?? null;
   const trackHref = `/tuners/${approval?.trackId ?? sub?.trackId ?? ""}`.replace(/\/$/, "");
@@ -32,7 +32,7 @@ function stagesFor(status: SessionStatus | null): { stages: Stage[]; next: strin
   const s = (n: number): StageState => (n < current ? "done" : n === current ? "current" : "todo");
 
   const stages: Stage[] = [
-    { label: "Set up", detail: setup ? "World ID + agent" : "World ID, agent", href: "/", state: s(1) },
+    { label: "Set up", detail: "World ID → Sui, agent", href: "/", state: s(1) },
     { label: "Approve", detail: "World ID", href: trackHref || "/tuners", state: s(2) },
     { label: "Pay", detail: `${SUI.feeSui} SUI · Slush`, href: trackHref || "/tuners", state: s(3) },
     { label: "Submit", detail: "agent runs it", href: trackHref || "/tuners", state: s(4) },
@@ -47,7 +47,7 @@ function stagesFor(status: SessionStatus | null): { stages: Stage[]; next: strin
 
   const next =
     current === 1
-      ? "Finish Get started: verify with World ID and connect your agent."
+      ? "Finish Get started: connect Slush, verify with World ID (mints your HumanPass), connect your agent."
       : current === 2
         ? rejected
           ? `Your last submission to ${sub!.track} was rejected. Open it to see why, then try a faster build.`

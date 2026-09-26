@@ -1,0 +1,5 @@
+{
+  "output": "out.npy",
+  "compare": "tensor",
+  "tolerance": 0.001
+}

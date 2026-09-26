@@ -26,18 +26,17 @@ export type AgentInfo = {
 };
 
 /**
- * Permission for one agent submission to one track. World ID verified users
- * approve with World ID; everyone else stakes SUI instead.
+ * Permission for one agent submission to one track: a World ID approval,
+ * then the process fee paid on Sui.
  */
 export type Approval = {
   id: string;
   sessionId: string;
   trackId: string;
-  kind: "worldid" | "stake";
+  kind: "worldid";
   action: string;
   status: "pending" | "approved";
   nullifier: string | null;
-  stake: { digest: string; owner: string; amountMist: string } | null;
   /** The 0.5 SUI process fee, paid after the World ID approval. */
   fee: { digest: string; payer: string; amountMist: string } | null;
   at: string;
@@ -76,6 +75,8 @@ export type Submission = {
   harness?: boolean;
   /** Where the process fee went once verification ended. */
   feeSettlement?: { digest: string; recipients: string[] } | null;
+  /** On sale once verified: the shared Listing on Sui. */
+  listing?: { id: string; digest: string; lineage: string } | null;
   at: string;
   settledAt: string | null;
 };
@@ -113,15 +114,6 @@ export type Assignment = {
   at: string;
 };
 
-export type Royalty = {
-  submissionId: string;
-  payer: string;
-  tuner: string;
-  amountMist: string;
-  digest: string;
-  at: string;
-};
-
 type Data = {
   seats: Seat[];
   agents: AgentInfo[];
@@ -129,8 +121,7 @@ type Data = {
   submissions: Submission[];
   verifiers: Verifier[];
   assignments: Assignment[];
-  royalties: Royalty[];
-  /** sessionId -> Sui address that receives royalties */
+  /** sessionId -> the Sui address bound to its World ID (holds the HumanPass) */
   payouts: Record<string, string>;
 };
 
@@ -142,7 +133,6 @@ const EMPTY: Data = {
   submissions: [],
   verifiers: [],
   assignments: [],
-  royalties: [],
   payouts: {},
 };
 
@@ -163,7 +153,6 @@ async function read(): Promise<Data> {
 function upgrade(data: Data): Data {
   for (const a of data.approvals) {
     a.kind ??= "worldid";
-    a.stake ??= null;
     a.fee ??= null;
     a.nullifier ??= null;
     a.action ??= "";

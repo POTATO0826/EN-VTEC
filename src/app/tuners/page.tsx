@@ -11,7 +11,7 @@ export default function TunersPage() {
     <>
       <PageTitle
         title="Tuners"
-        subtitle="Each track is one fixed workload. Beat the record by more than 1% and the people who reuse your build pay you a royalty."
+        subtitle="Each track is one fixed workload. Beat the baseline by more than 1%, get verified by other people's hardware, and earn every time someone licenses your kernel."
       />
       <div className="grid gap-4 md:grid-cols-2">
         {TRACKS.map((track) => (

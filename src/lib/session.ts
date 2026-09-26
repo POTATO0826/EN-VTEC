@@ -32,6 +32,10 @@ export function useSessionId(): string | null {
 
 export type SessionStatus = {
   seat: { nullifier: string; at: string } | null;
+  /** The Slush address this session's World ID is bound to. */
+  wallet: string | null;
+  /** HumanPass object id on Sui, if that wallet holds one. */
+  humanPass: string | null;
   agent: {
     code: string;
     hostname: string;

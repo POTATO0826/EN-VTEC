@@ -7,6 +7,7 @@ import {
   type IDKitResult,
   type RpContext,
 } from "@worldcoin/idkit";
+import { IDKitErrorCodes } from "@worldcoin/idkit";
 import { AlertTriangleIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -32,17 +33,39 @@ const ERRORS: Record<string, string> = {
 /**
  * One World ID check (IDKit, Proof of Human). The server signs the request
  * (`start`), the widget collects the proof, and `confirm` sends it back to the
- * server, which verifies it with World. The session id is always the signal.
+ * server, which verifies it with World. The signal binds the proof to one
+ * thing (a session, or a Sui address), so it can't be replayed for another.
  */
+
+/** What World App's error codes mean for the person looking at the page. */
+const WORLD_ERRORS: Partial<Record<string, { title: string; detail: string }>> = {
+  [IDKitErrorCodes.UserRejected]: {
+    title: "You declined in World App",
+    detail: "Nothing was approved. Try again when you're ready.",
+  },
+  [IDKitErrorCodes.VerificationRejected]: {
+    title: "Declined in World App",
+    detail: "Nothing was approved. Try again when you're ready.",
+  },
+  [IDKitErrorCodes.CredentialUnavailable]: {
+    title: "No Proof of Human on this World ID",
+    detail: "This needs a World ID verified at an Orb.",
+  },
+};
 export default function WorldIdButton({
   label,
   sessionId,
+  signal,
+  disabled,
   start,
   confirm,
   onDone,
 }: {
   label: string;
   sessionId: string;
+  /** What the proof is bound to. Defaults to the session id. */
+  signal?: string;
+  disabled?: boolean;
   start: () => Promise<Response>;
   confirm: (proof: IDKitResult, request: SignedRequest) => Promise<Response>;
   onDone: () => void;
@@ -91,7 +114,7 @@ export default function WorldIdButton({
         </Alert>
       ) : null}
 
-      <Button onClick={open} disabled={busy} className="w-fit rounded-full px-5">
+      <Button onClick={open} disabled={busy || disabled} className="w-fit rounded-full px-5">
         {busy ? "Preparing…" : label}
       </Button>
 
@@ -105,9 +128,16 @@ export default function WorldIdButton({
           environment={request.environment}
           rp_context={request.rp_context}
           allow_legacy_proofs
-          preset={proofOfHuman({ signal: sessionId })}
+          preset={proofOfHuman({ signal: signal ?? sessionId })}
           handleVerify={verify}
           onSuccess={() => setRequest(null)}
+          onError={(code) => {
+            // The denied path: say plainly what happened, approve nothing.
+            setRequest(null);
+            setError((current) =>
+              current ?? WORLD_ERRORS[code] ?? { title: "World ID didn't complete", detail: String(code) },
+            );
+          }}
         />
       ) : null}
     </div>

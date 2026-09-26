@@ -5,7 +5,10 @@ import Link from "next/link";
 import { cn } from "cn";
 import { CheckIcon, CopyIcon, CpuIcon, MonitorIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useCurrentAccount } from "@mysten/dapp-kit-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import SlushConnect from "@/components/sui/SlushConnect";
 import { PageTitle, Step, type StepState } from "@/components/ui/step";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import { TASKS } from "@/lib/catalog";
@@ -47,7 +50,7 @@ export default function GetStarted() {
   const done = {
     1: !!choices.device,
     2: !!choices.taskId,
-    3: !!status?.seat,
+    3: !!status?.seat && !!status?.humanPass,
     4: !!status?.agent,
   };
   const firstOpen = ([1, 2, 3, 4] as const).find((n) => !done[n]) ?? null;
@@ -100,27 +103,20 @@ export default function GetStarted() {
 
         <Step
           n={3}
-          title="Verify you're human"
+          title="Verify you're human (World ID → Sui)"
           state={stateOf(3)}
           summary={
             status?.seat ? (
-              <span className="vtec-num">seat {status.seat.nullifier.slice(0, 10)}…</span>
+              <span className="vtec-num">HumanPass · seat {status.seat.nullifier.slice(0, 10)}…</span>
             ) : null
           }
         >
           <p className="mb-4 max-w-xl text-sm text-muted-foreground">
-            One person, one tuner seat. World ID proves you&apos;re a unique human without telling us who you are. After
-            this, each submission is approved with World ID and a {SUI.feeSui} SUI process fee.
+            One person, one seat. Connect your Slush wallet, then prove you&apos;re a unique human with World ID. The
+            proof is bound to that wallet, and VTEC mints a <span className="text-foreground">HumanPass</span> to it on
+            Sui. It can&apos;t be transferred, and the contracts check for it.
           </p>
-          {sessionId ? (
-            <WorldIdButton
-              label="Verify with World ID"
-              sessionId={sessionId}
-              start={() => postJson("/api/world/rp-signature", {})}
-              confirm={(proof) => postJson("/api/world/claim-seat", { sessionId, idkitResponse: proof })}
-              onDone={refresh}
-            />
-          ) : null}
+          {sessionId ? <HumanPassSteps sessionId={sessionId} onDone={refresh} /> : null}
         </Step>
 
         <Step
@@ -147,6 +143,35 @@ export default function GetStarted() {
         </div>
       ) : null}
     </>
+  );
+}
+
+function HumanPassSteps({ sessionId, onDone }: { sessionId: string; onDone: () => void }) {
+  const account = useCurrentAccount();
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-muted-foreground">1. Wallet</span>
+        <SlushConnect />
+      </div>
+      <div className={`flex items-start gap-3 transition-opacity ${account ? "" : "opacity-50"}`}>
+        <span className="pt-2 text-sm text-muted-foreground">2. World ID</span>
+        <WorldIdButton
+          label="Verify with World ID"
+          sessionId={sessionId}
+          signal={account?.address.toLowerCase()}
+          disabled={!account}
+          start={() => postJson("/api/world/rp-signature", {})}
+          confirm={(proof) =>
+            postJson("/api/world/claim-seat", { sessionId, address: account?.address, idkitResponse: proof })
+          }
+          onDone={() => {
+            toast.success("You're verified", { description: "Your HumanPass is on Sui, in your Slush wallet." });
+            onDone();
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

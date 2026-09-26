@@ -35,7 +35,6 @@ export async function POST(request: Request) {
       action,
       status: "pending",
       nullifier: null,
-      stake: null,
       fee: null,
       at: new Date().toISOString(),
     });

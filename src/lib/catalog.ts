@@ -8,32 +8,26 @@ export type Task = {
 
 export const TASKS: Task[] = [
   {
-    id: "zk-groth16",
-    name: "ZK proving",
-    detail: "Generate Groth16 proofs (BN254). The heaviest part is MSM and FFT, which is where a GPU helps.",
+    id: "local-ai",
+    name: "Local AI kernels",
+    detail: "Run LLM layers (RMSNorm, attention, matmul) faster on your own GPU with kernels tuned for your card.",
     available: true,
   },
   {
-    id: "hash-batch",
-    name: "Batch hashing",
-    detail: "SHA-256 / Keccak over millions of inputs, e.g. commitments and airdrop lists.",
-    available: false,
+    id: "media",
+    name: "Video rendering",
+    detail: "Render and encode video faster: same frames, less time.",
+    available: true,
   },
   {
-    id: "merkle",
-    name: "Merkle trees",
-    detail: "Build and update large Merkle trees for rollups and allowlists.",
-    available: false,
-  },
-  {
-    id: "sig-verify",
-    name: "Signature checks",
-    detail: "Verify batches of ECDSA / BLS signatures.",
+    id: "zk-groth16",
+    name: "ZK proving",
+    detail: "Groth16 proofs (BN254). The heavy parts, MSM and FFT, are GPU work.",
     available: false,
   },
 ];
 
-/** Page 2: a fixed workload tuners compete on. One track = one leaderboard. */
+/** Page 2: a fixed workload tuners compete on. One track = one challenge. */
 export type Track = {
   id: string;
   name: string;
@@ -45,6 +39,20 @@ export type Track = {
 
 export const TRACKS: Track[] = [
   {
+    id: "rmsnorm-4096",
+    name: "RMSNorm kernel",
+    category: "Local AI · CUDA",
+    summary:
+      "The normalisation that runs twice in every Llama layer. Beat the generic version on your GPU with the same output.",
+    spec: [
+      ["Input", "8192 × 4096 fp32, random per run (seeded)"],
+      ["Output", "y = x / √(mean(x²) + ε) · w"],
+      ["Check", "Matches the baseline within 1e-3 on every seed"],
+      ["Hardware", "NVIDIA GPU, driver 525+"],
+    ],
+    metric: "Time (s)",
+  },
+  {
     id: "video-1080p-2min",
     name: "Video render",
     category: "Media",
@@ -52,23 +60,10 @@ export const TRACKS: Track[] = [
     spec: [
       ["Clip", "2 min test pattern + 440 Hz tone (ffmpeg testsrc2)"],
       ["Output", "1920×1080, 30 fps, H.264, 3,600 frames"],
-      ["Check", "Output stream matches the reference exactly"],
+      ["Check", "Same frames and picture as the baseline"],
       ["Hardware", "Reported by the agent (GPU, driver, CPU)"],
     ],
     metric: "Render time (s)",
-  },
-  {
-    id: "ens-namehash",
-    name: "ENS names",
-    category: "ENSv2 · Sepolia",
-    summary: "Compute ENS namehash + SHA-256 for 1M names. Winning builds are published as ENSv2 subnames on Sepolia.",
-    spec: [
-      ["Input", "1,000,000 names, fixed list"],
-      ["Output", "namehash + SHA-256 per name"],
-      ["Check", "Output root matches the reference"],
-      ["Publish", "<tuner>.vtec.eth on ENSv2 Sepolia"],
-    ],
-    metric: "Time (s)",
   },
 ];
 

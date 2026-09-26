@@ -1,0 +1,7 @@
+{
+  "name": "tuned (float4 + warp shuffle)",
+  "run": "{python} rmsnorm.py",
+  "requires": {
+    "nvidiaDriver": "525"
+  }
+}

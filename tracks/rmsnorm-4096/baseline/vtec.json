@@ -1,0 +1,7 @@
+{
+  "name": "baseline (generic, unfused)",
+  "run": "{python} rmsnorm.py",
+  "requires": {
+    "nvidiaDriver": "525"
+  }
+}

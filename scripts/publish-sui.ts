@@ -53,9 +53,12 @@ const result = JSON.parse(
 ) as { digest: string; objectChanges: { type: string; packageId?: string; objectType?: string; objectId?: string }[] };
 
 const packageId = result.objectChanges.find((c) => c.type === "published")?.packageId;
-const vaultId = result.objectChanges.find((c) => c.objectType?.endsWith("::vault::Vault"))?.objectId;
-const adminCapId = result.objectChanges.find((c) => c.objectType?.endsWith("::vault::AdminCap"))?.objectId;
-if (!packageId || !vaultId || !adminCapId) {
+const idOf = (suffix: string) => result.objectChanges.find((c) => c.objectType?.endsWith(suffix))?.objectId;
+const vaultId = idOf("::vault::Vault");
+const marketId = idOf("::market::Market");
+const humansId = idOf("::human::Humans");
+const adminCapId = idOf("::admin::AdminCap");
+if (!packageId || !vaultId || !marketId || !humansId || !adminCapId) {
   console.error("Publish succeeded but ids weren't found in the output.");
   process.exit(1);
 }
@@ -69,6 +72,8 @@ const values: Record<string, string> = {
   NEXT_PUBLIC_SUI_NETWORK: "testnet",
   NEXT_PUBLIC_SUI_PACKAGE_ID: packageId,
   NEXT_PUBLIC_SUI_VAULT_ID: vaultId,
+  NEXT_PUBLIC_SUI_MARKET_ID: marketId,
+  SUI_HUMANS_ID: humansId,
   SUI_ADMIN_CAP_ID: adminCapId,
   SUI_ADMIN_KEY: exported.exportedPrivateKey,
 };
@@ -85,5 +90,7 @@ writeFileSync(ENV, env);
 console.log(`✓ published in ${result.digest}`);
 console.log(`  package  ${packageId}`);
 console.log(`  vault    ${vaultId}`);
+console.log(`  market   ${marketId}`);
+console.log(`  humans   ${humansId}`);
 console.log(`  admin    ${adminCapId}`);
 console.log("✓ wrote the ids and SUI_ADMIN_KEY to .env.local");

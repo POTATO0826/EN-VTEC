@@ -41,6 +41,12 @@ const args = process.argv.slice(2);
 const [command, code] = args;
 const REPO = path.resolve(import.meta.dir, "..");
 const REVEALS = path.join(os.homedir(), ".vtec", "reveals");
+// Builds say "{python}" and get the project's own Python (with CuPy), so the
+// same vtec.json works wherever the build folder lives.
+const PYTHON = [
+  path.join(REPO, ".venv", "Scripts", "python.exe"),
+  path.join(REPO, ".venv", "bin", "python"),
+].find((p) => existsSync(p)) ?? "python";
 
 function flag(name: string) {
   const i = args.indexOf(`--${name}`);
@@ -169,7 +175,7 @@ function manifestOf(dir: string) {
  */
 function runOnce(dir: string, run: string, seed = "0", out?: string) {
   const started = performance.now();
-  const result = spawnSync(run, {
+  const result = spawnSync(run.replaceAll("{python}", `"${PYTHON}"`), {
     shell: true,
     cwd: dir,
     encoding: "buffer",
@@ -211,6 +217,32 @@ function sameVideo(a: ReturnType<typeof inspectVideo>, b: ReturnType<typeof insp
   let diff = 0;
   for (let i = 0; i < a.thumb.length; i++) diff += Math.abs(a.thumb[i] - b.thumb[i]);
   return diff / a.thumb.length < 8;
+}
+
+type TrackConfig = { output?: string; compare?: "video" | "tensor"; tolerance?: number };
+
+/** tracks/<id>/track.json: what a build writes and how outputs are compared. */
+function trackConfig(trackId: string): TrackConfig {
+  const file = path.join(REPO, "tracks", trackId, "track.json");
+  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as TrackConfig) : {};
+}
+
+/** Two .npy tensors match within a float tolerance (different kernels round differently). */
+function sameTensor(a: string, b: string, tolerance: number) {
+  if (!existsSync(a) || !existsSync(b)) return false;
+  const check = spawnSync(
+    PYTHON,
+    [
+      "-c",
+      "import sys, numpy as np; a=np.load(sys.argv[1]); b=np.load(sys.argv[2]); " +
+        "print('ok' if a.shape==b.shape and np.isfinite(b).all() and float(np.abs(a-b).max())<=float(sys.argv[3]) else 'bad')",
+      a,
+      b,
+      String(tolerance),
+    ],
+    { encoding: "utf8" },
+  );
+  return check.stdout.trim().endsWith("ok");
 }
 
 function median(values: number[]) {
@@ -341,8 +373,10 @@ async function verifyOne(job: Job, runs: number) {
     //    temperature or clocks hits both equally. Every pair gets a fresh
     //    seed, and both must produce the same answer for it.
     const scratch = mkdtempSync(path.join(os.tmpdir(), "vtec-out-"));
-    const baseOut = path.join(scratch, "baseline.mp4");
-    const candOut = path.join(scratch, "candidate.mp4");
+    const track = trackConfig(sub.trackId);
+    const ext = path.extname(track.output ?? "out.bin");
+    const baseOut = path.join(scratch, `baseline${ext}`);
+    const candOut = path.join(scratch, `candidate${ext}`);
     console.log(`  warm-up…`);
     runOnce(baselineDir, baselineRun, "0", baseOut);
     runOnce(dir, candidateRun, "0", candOut);
@@ -357,8 +391,15 @@ async function verifyOne(job: Job, runs: number) {
       const c = runOnce(dir, candidateRun, seed, candOut);
       base.push(b.ms);
       cand.push(c.ms);
-      const video = existsSync(baseOut) ? sameVideo(inspectVideo(baseOut), inspectVideo(candOut)) : true;
-      const same = b.sha256 === c.sha256 && video;
+      // The harness checks the output files itself; it never trusts what a build prints.
+      const files = !existsSync(baseOut)
+        ? true
+        : track.compare === "video"
+          ? sameVideo(inspectVideo(baseOut), inspectVideo(candOut))
+          : track.compare === "tensor"
+            ? sameTensor(baseOut, candOut, track.tolerance ?? 1e-3)
+            : false;
+      const same = b.sha256 === c.sha256 && files;
       correct &&= same;
       console.log(
         `  run ${i + 1}/${runs}  seed ${seed.padStart(3)}  baseline ${(b.ms / 1000).toFixed(2)} s   candidate ${(c.ms / 1000).toFixed(2)} s   ${same ? "same output" : "DIFFERENT OUTPUT"}`,

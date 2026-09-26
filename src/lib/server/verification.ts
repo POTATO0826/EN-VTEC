@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { HARNESS_ENABLED, harnessRunning, PLATFORM_CODE, PLATFORM_SESSION, runHarness } from "./harness";
 import { hasBuild, load, update, type Submission, type VerifyReport } from "./store";
-import { adminAddress, adminReady, distributeFee, drawSeed, refundFee, settleStake } from "./sui";
+import { adminAddress, adminReady, distributeFee, drawSeed, listKernel, refundFee } from "./sui";
 
 /**
  * Independent verification of a submission.
@@ -13,9 +13,9 @@ import { adminAddress, adminReady, distributeFee, drawSeed, refundFee, settleSta
  *                commits a hash of their report, then reveals it once every
  *                assigned verifier has committed (so nobody can copy)
  *   verified  -> QUORUM verifiers say: same output, faster by more than 1%
- *                and by more than their measured noise. Stake released.
- *   rejected  -> quorum can no longer be reached. Stake forfeited to the
- *                verifier reward pool.
+ *                and by more than their measured noise. Listed for sale on Sui.
+ *   rejected  -> quorum can no longer be reached. Stays off the ranking.
+ *   Either way, the process fee is split between the verifiers who ran it.
  *
  * With too few human verifiers (early days, or a solo demo), the platform
  * harness fills in as one verifier, and the quorum shrinks to the number of
@@ -215,12 +215,30 @@ export async function tally(submissionId: string, revealedId?: string) {
     }
   }
 
-  // Legacy: stakes from before the process fee replaced them.
-  if (approval?.kind === "stake" && adminReady()) {
+  // Verified: put it on sale. Buyers pay 70% to the tuner, 20% to the
+  // lineage (whoever held the best verified result on this track before) and
+  // 10% to the platform, and get a License, all in one transaction.
+  if (outcome === "verified" && adminReady()) {
     try {
-      await settleStake(approval.id, outcome === "verified" ? "release" : "forfeit");
+      const fresh = await load();
+      const tuner = fresh.payouts[sub.sessionId] ?? adminAddress();
+      const previous = fresh.submissions
+        .filter((s) => s.trackId === sub.trackId && s.status === "verified" && s.id !== sub.id && s.listing)
+        .sort((a, b) => (b.speedup ?? 0) - (a.speedup ?? 0))[0];
+      const lineage = previous ? (fresh.payouts[previous.sessionId] ?? tuner) : tuner;
+      const listed = await listKernel({
+        challenge: sub.trackId,
+        kernel: sub.id,
+        version: sub.buildSha256,
+        tuner,
+        lineage,
+      });
+      await update((d) => {
+        const s = d.submissions.find((x) => x.id === submissionId);
+        if (s) s.listing = { id: listed.listingId, digest: listed.digest, lineage };
+      });
     } catch (e) {
-      console.warn("[verify] stake settlement failed:", e instanceof Error ? e.message : e);
+      console.warn("[verify] listing failed:", e instanceof Error ? e.message : e);
     }
   }
 }
