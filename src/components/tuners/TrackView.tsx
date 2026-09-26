@@ -4,12 +4,12 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCurrentAccount, useDAppKit } from "@mysten/dapp-kit-react";
-import { ArrowLeftIcon, ArrowUpRightIcon, CoinsIcon, ScanFaceIcon } from "lucide-react";
+import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, CoinsIcon, LoaderIcon, ScanFaceIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { Step, type StepState } from "@/components/ui/step";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import SlushConnect from "@/components/sui/SlushConnect";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import type { Track } from "@/lib/catalog";
@@ -62,6 +62,7 @@ export default function TrackView({ track }: { track: Track }) {
   // Tell the tuner the moment their new submission lands, and again when the
   // verifiers (or the platform harness) have decided it, with a link to the result.
   const router = useRouter();
+  const [running, setRunning] = React.useState<string | null>(null);
   const seen = React.useRef<Map<string, Status> | null>(null);
   React.useEffect(() => {
     if (!data) return;
@@ -70,10 +71,7 @@ export default function TrackView({ track }: { track: Track }) {
       for (const row of mine) {
         const before = seen.current.get(row.id);
         if (before === undefined) {
-          toast.success("Submission received", {
-            description: "Verifiers are re-running it now.",
-            action: { label: "Watch", onClick: () => router.push(`/results/${row.id}`) },
-          });
+          setRunning(row.id);
         } else if (before !== row.status && (row.status === "verified" || row.status === "rejected")) {
           const view = { label: "View result", onClick: () => router.push(`/results/${row.id}`) };
           if (row.status === "verified") {
@@ -90,10 +88,17 @@ export default function TrackView({ track }: { track: Track }) {
     seen.current = new Map(mine.map((r) => [r.id, r.status]));
   }, [data, router]);
 
-  // Older links open a submission as /tuners/<track>#<submission id>; its page is /results/<id> now.
+  // #run_<id> (the agent prints it) opens the running dialog for that submission;
+  // older #<id> links go to the submission's result page.
   React.useEffect(() => {
-    const id = window.location.hash.slice(1);
-    if (id.startsWith("sub_")) router.replace(`/results/${id}`);
+    const fromHash = () => {
+      const id = window.location.hash.slice(1);
+      if (id.startsWith("run_")) setRunning(id.slice(4));
+      else if (id.startsWith("sub_")) router.replace(`/results/${id}`);
+    };
+    fromHash();
+    window.addEventListener("hashchange", fromHash);
+    return () => window.removeEventListener("hashchange", fromHash);
   }, [router]);
 
   const hasAgent = !!status?.agent;
@@ -159,15 +164,6 @@ export default function TrackView({ track }: { track: Track }) {
             </Step>
           </section>
 
-          <section className="flex flex-col gap-3">
-            <div className="flex items-end justify-between gap-4">
-              <SectionTitle>Submissions</SectionTitle>
-              <Link href="/models" className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
-                Kernel Code Efficiency Ranking <ArrowUpRightIcon className="size-3.5" />
-              </Link>
-            </div>
-            <Submissions rows={data?.rows ?? []} onOpen={(id) => router.push(`/results/${id}`)} />
-          </section>
         </div>
 
         <aside className="flex flex-col gap-3 lg:sticky lg:top-6 lg:self-start">
@@ -188,15 +184,16 @@ export default function TrackView({ track }: { track: Track }) {
               </div>
             </dl>
           </Card>
-          <Card title="Process fee">
-            <p className="text-sm text-muted-foreground">
-              Each submission costs {SUI.feeSui} SUI, paid with Slush after your World ID approval. It&apos;s held on Sui
-              until verification ends, then split between the verifiers who re-ran your code.
-            </p>
-          </Card>
         </aside>
       </div>
 
+      <RunningDialog
+        row={data?.rows.find((r) => r.id === running) ?? null}
+        onClose={() => {
+          setRunning(null);
+          if (window.location.hash.startsWith("#run_")) history.replaceState(null, "", window.location.pathname);
+        }}
+      />
     </>
   );
 }
@@ -286,64 +283,114 @@ function FeePayment({ sessionId, approvalId, onDone }: { sessionId: string; appr
   );
 }
 
-function Submissions({ rows, onOpen }: { rows: Row[]; onOpen: (id: string) => void }) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center text-sm text-muted-foreground">
-        No submissions yet.
-      </div>
-    );
-  }
+/**
+ * The small page that pops up while a submission is being tested: what has
+ * happened so far, what is running now, and the verdict once it lands. OK
+ * closes it; the verdict toast and /results keep the rest.
+ */
+function RunningDialog({ row, onClose }: { row: Row | null; onClose: () => void }) {
+  const decided = row?.status === "verified" || row?.status === "rejected";
+  const drawn = !!row && row.verifiers.assigned > 0;
+  const ran = !!row && drawn && row.verifiers.revealed >= row.verifiers.assigned;
+  const steps: { title: string; text: string; state: "done" | "current" | "todo" | "failed" }[] = row
+    ? [
+        {
+          title: "Uploaded by your agent",
+          text: `${row.buildName} · ${row.gpu} · ${row.seconds.toFixed(1)} s there · ${row.buildSha256.slice(0, 12)}…`,
+          state: "done",
+        },
+        {
+          title: drawn ? `Verifiers drawn · ${row.verifiers.assigned}` : "Drawing verifiers",
+          text: drawn
+            ? row.harness
+              ? "Too few people in the pool, so the platform harness stands in."
+              : "Picked at random from the verifier pool."
+            : "Waiting for enough verifiers with matching hardware.",
+          state: drawn ? "done" : "current",
+        },
+        {
+          title: "Re-running baseline vs your build",
+          text: !drawn
+            ? "Starts once verifiers are drawn."
+            : ran
+              ? "Every verifier has reported."
+              : `${row.verifiers.revealed}/${row.verifiers.assigned} reported · seeded runs, baseline and build alternated, outputs compared.`,
+          state: !drawn ? "todo" : ran ? "done" : "current",
+        },
+        {
+          title:
+            row.status === "verified"
+              ? `Verified at ${row.speedup?.toFixed(2)}×`
+              : row.status === "rejected"
+                ? "Not proven faster"
+                : "Verdict",
+          text:
+            row.status === "verified"
+              ? "Same output, clearly faster. It is on the ranking and can be licensed."
+              : row.status === "rejected"
+                ? "Inside the noise, or a different output. It stays off the ranking."
+                : "Decided once the verifiers agree.",
+          state: row.status === "verified" ? "done" : row.status === "rejected" ? "failed" : "todo",
+        },
+      ]
+    : [];
   return (
-    <div className="overflow-x-auto rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Status</TableHead>
-            <TableHead>Build</TableHead>
-            <TableHead>Verifiers</TableHead>
-            <TableHead className="text-right">Speedup</TableHead>
-            <TableHead>Code SHA-256</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow
-              key={row.id}
-              onClick={() => onOpen(row.id)}
-              className={`cursor-pointer transition-colors hover:bg-accent/50 ${row.mine ? "bg-accent/30" : ""}`}
-            >
-              <TableCell>
-                <StatusBadge status={row.status} />
-              </TableCell>
-              <TableCell>
-                <span className="block text-sm">{row.buildName}</span>
-                <span className="text-xs text-muted-foreground">
-                  {row.gpu}
-                  {row.mine ? " · you" : ""}
-                </span>
-              </TableCell>
-              <TableCell className="text-sm text-muted-foreground">
-                {row.legacy
-                  ? "old, not verifiable"
-                  : row.verifiers.assigned === 0
-                    ? "drawing verifiers…"
-                    : `${row.verifiers.revealed}/${row.verifiers.assigned} done`}
-                {row.harness ? <span className="block text-xs">incl. platform harness</span> : null}
-              </TableCell>
-              <TableCell className="vtec-num text-right">{row.speedup ? `${row.speedup.toFixed(2)}×` : "—"}</TableCell>
-              <TableCell className="vtec-num text-muted-foreground">{row.buildSha256.slice(0, 12)}…</TableCell>
-              <TableCell className="text-right text-xs whitespace-nowrap text-muted-foreground">Full result →</TableCell>
-            </TableRow>
+    <Dialog open={!!row} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="border-border bg-card sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {decided ? null : <LoaderIcon className="size-4 animate-spin text-[var(--warning)]" />}
+            {decided ? "Your kernel has been tested" : "Your kernel is running"}
+          </DialogTitle>
+          <DialogDescription>
+            {decided ? "Every step is on the result page, with the evidence." : "Updates live. You can close this and keep working."}
+          </DialogDescription>
+        </DialogHeader>
+        <ol className="flex flex-col gap-3">
+          {steps.map((step) => (
+            <li key={step.title} className="flex gap-3">
+              <span
+                className={`mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full border ${
+                  step.state === "done"
+                    ? "border-[var(--success)] text-[var(--success)]"
+                    : step.state === "current"
+                      ? "border-[var(--warning)] text-[var(--warning)]"
+                      : step.state === "failed"
+                        ? "border-[var(--danger)] text-[var(--danger)]"
+                        : "border-border text-muted-foreground"
+                }`}
+              >
+                {step.state === "done" ? (
+                  <CheckIcon className="size-3" />
+                ) : step.state === "current" ? (
+                  <LoaderIcon className="size-3 animate-spin" />
+                ) : step.state === "failed" ? (
+                  <XIcon className="size-3" />
+                ) : null}
+              </span>
+              <span className="min-w-0">
+                <span className={`block text-sm font-medium ${step.state === "todo" ? "text-muted-foreground" : ""}`}>{step.title}</span>
+                <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{step.text}</span>
+              </span>
+            </li>
           ))}
-        </TableBody>
-      </Table>
-    </div>
+        </ol>
+        <div className="mt-2 flex flex-wrap justify-end gap-2">
+          {decided && row ? (
+            <Button asChild className="rounded-full px-5">
+              <Link href={`/results/${row.id}`}>
+                See the full result <ArrowRightIcon />
+              </Link>
+            </Button>
+          ) : null}
+          <Button variant={decided ? "outline" : "default"} className="rounded-full px-5" onClick={onClose}>
+            OK
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
-
-/* -------------------------------------------------------------------------- */
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="text-sm tracking-[0.18em] text-muted-foreground uppercase">{children}</h2>;

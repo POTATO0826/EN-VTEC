@@ -401,6 +401,7 @@ async function submit() {
     files,
   });
   console.log(`✓ Submitted ${data.id}: pending verification. It reaches the ranking once verifiers agree.`);
+  console.log(`  Watch it run: ${URL_BASE}/tuners/${track}#run_${data.id}`);
   console.log(`  Result: ${URL_BASE}/results/${data.id}`);
 }
 
