@@ -162,7 +162,7 @@ export default function TrackView({ track }: { track: Track }) {
           <section className="flex flex-col gap-3">
             <div className="flex items-end justify-between gap-4">
               <SectionTitle>Submissions</SectionTitle>
-              <Link href="/ranking" className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
+              <Link href="/models" className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
                 Kernel Code Efficiency Ranking <ArrowUpRightIcon className="size-3.5" />
               </Link>
             </div>

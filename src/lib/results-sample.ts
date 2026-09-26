@@ -1,4 +1,4 @@
-import { SPOKES, type Metrics, type ResultEntry, type SpokeKey, type VerifierRun } from "./results";
+import { SPOKES, type Metrics, type ResultEntry, type VerifierRun } from "./results";
 
 /**
  * Sample entries for /results?sample=1: several tracks, several verifiers
@@ -15,7 +15,7 @@ function rng(seed: number) {
   };
 }
 
-type Full = Record<SpokeKey, number>;
+type Full = Record<string, number>;
 
 /** Runs from a baseline × per-spoke multiplier, with per-verifier jitter. */
 function mkRuns(base: Full, mult: Full, verifiers: string[], jitter: number, seed: number, override?: Partial<Full>) {
@@ -53,6 +53,7 @@ const fee = (digest: string) => ({ worldId: true, fee: { digest, amountSui: 0.01
 export const SAMPLE_ENTRIES: ResultEntry[] = [
   {
     id: "coding",
+    set: "harness",
     label: "Coding",
     workload: "RMSNorm kernel",
     hardware: RTX4060L,
@@ -83,6 +84,7 @@ export const SAMPLE_ENTRIES: ResultEntry[] = [
   },
   {
     id: "render",
+    set: "harness",
     label: "3D Rendering",
     workload: "Ray–triangle intersection",
     hardware: RTX4090,
@@ -115,6 +117,7 @@ export const SAMPLE_ENTRIES: ResultEntry[] = [
   },
   {
     id: "video",
+    set: "harness",
     label: "Video",
     workload: "Motion estimation · SAD",
     hardware: RTX4060L,
@@ -153,6 +156,7 @@ export const SAMPLE_ENTRIES: ResultEntry[] = [
   },
   {
     id: "inference",
+    set: "harness",
     label: "LLM Inference",
     workload: "Paged KV-cache attention",
     hardware: "Apple M3 Max",
@@ -184,6 +188,7 @@ export const SAMPLE_ENTRIES: ResultEntry[] = [
   },
   {
     id: "imagegen",
+    set: "harness",
     label: "Image Gen",
     workload: "Conv2d · Winograd F(4,3)",
     hardware: RTX4090,
@@ -212,6 +217,7 @@ export const SAMPLE_ENTRIES: ResultEntry[] = [
   },
   {
     id: "science",
+    set: "harness",
     label: "Scientific / HPC",
     workload: "FP64 SpMV · CSR",
     hardware: RTX4090,

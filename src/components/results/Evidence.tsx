@@ -63,8 +63,8 @@ export default function Evidence({ entry, sample }: { entry: ResultEntry; sample
           <div className="flex flex-wrap gap-2">
             {d.status === "verified" ? (
               <Button asChild className="rounded-full px-5">
-                <Link href="/ranking">
-                  View the ranking <ArrowRightIcon />
+                <Link href="/models">
+                  View it on the models <ArrowRightIcon />
                 </Link>
               </Button>
             ) : null}

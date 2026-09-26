@@ -2,7 +2,7 @@ import "server-only";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { findTrack } from "@/lib/catalog";
-import { range, SPOKES, type Metrics, type ResultEntry, type SpokeKey, type VerifierRun } from "@/lib/results";
+import { range, SPOKES, type Metrics, type ResultEntry, type VerifierRun } from "@/lib/results";
 import { harnessRunning, PLATFORM_SESSION } from "./harness";
 import type { load, Submission, VerifyReport } from "./store";
 import { QUORUM } from "./verification";
@@ -41,12 +41,12 @@ function toleranceOf(trackId: string) {
  * for times and percent for spread. Reports from older agents only carry the
  * medians, so the other spokes stay undefined and show as not measured.
  */
-function spokePairs(r: VerifyReport): Partial<Record<SpokeKey, [cand: number, base: number]>> {
+function spokePairs(r: VerifyReport): Partial<Record<string, [cand: number, base: number]>> {
   const spread = (ms: number[] | undefined) => {
     const g = range(ms ?? []);
     return g && g.median > 0 ? ((g.max - g.min) / g.median) * 100 : null;
   };
-  const out: Partial<Record<SpokeKey, [number, number]>> = {
+  const out: Partial<Record<string, [number, number]>> = {
     speed: [r.candidateMedianMs / 1000, r.baselineMedianMs / 1000],
   };
   const c = range(r.candidateMs ?? []);
@@ -197,6 +197,7 @@ function entryOf(data: Data, sub: Submission, label: string, sessionId: string |
   const decided = sub.status === "verified" || sub.status === "rejected";
   return {
     id: sub.id,
+    set: "harness",
     label,
     workload: track?.name ?? sub.trackId,
     track: sub.trackId,

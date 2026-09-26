@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CATS, grade, spokeStats, type CatKey, type ResultEntry, type SpokeStat } from "@/lib/results";
+import { grade, SPOKE_SETS, spokeStats, type ResultEntry, type SpokeStat } from "@/lib/results";
 
 /*
  * The hexagon: one spoke per harness measurement, scored 0 at the baseline
@@ -60,6 +60,7 @@ function useTweenedShape(target: Shape) {
 }
 
 export default function SkillChart({ entry, sample }: { entry: ResultEntry; sample: boolean }) {
+  const { cats: CATS } = SPOKE_SETS[entry.set];
   const stats = spokeStats(entry);
   const shape = useTweenedShape({
     med: stats.map((s) => s.med),
@@ -70,7 +71,7 @@ export default function SkillChart({ entry, sample }: { entry: ResultEntry; samp
 
   // Hover state belongs to one entry; switching entries clears it.
   const [spoke, setSpoke] = React.useState<number | null>(null);
-  const [hoverCat, setHoverCat] = React.useState<CatKey | null>(null);
+  const [hoverCat, setHoverCat] = React.useState<string | null>(null);
   const [forId, setForId] = React.useState(entry.id);
   if (forId !== entry.id) {
     setForId(entry.id);
@@ -83,7 +84,7 @@ export default function SkillChart({ entry, sample }: { entry: ResultEntry; samp
   const noRuns = entry.runs.length === 0;
   const measured = stats.filter((s) => s.measured);
   const cat = hoverCat ?? (spoke != null ? stats[spoke].cat : null);
-  const dim = (c: CatKey) => (cat && cat !== c ? 0.4 : 1);
+  const dim = (c: string) => (cat && cat !== c ? 0.4 : 1);
 
   let readout: string;
   let readoutBad = false;
@@ -92,7 +93,8 @@ export default function SkillChart({ entry, sample }: { entry: ResultEntry; samp
       ? "Pending verification: the chart fills in as verifier runs land. 0 ring = baseline kernel, 100 ring = best verified on this track."
       : "No valid runs: no verifier reproduced the baseline's output, so there is nothing to chart.";
   } else if (spoke == null) {
-    readout = `Hover a vertex for the real value. 0 ring = the baseline kernel on ${entry.hardware}; 100 ring = the best verified kernel on ${entry.model}. PRECISION: 0 = at the track's tolerance, 100 = identical output.`;
+    readout = `Hover a vertex for the real value. 0 ring = the baseline kernel on ${entry.hardware}; 100 ring = the best verified kernel on ${entry.model}.`;
+    if (entry.set === "harness") readout += " PRECISION: 0 = at the track's tolerance, 100 = identical output.";
     if (measured.length < stats.length) readout += ` ${stats.length - measured.length} spoke(s) need a report from the current agent.`;
   } else {
     const s = stats[spoke];
@@ -103,7 +105,7 @@ export default function SkillChart({ entry, sample }: { entry: ResultEntry; samp
     }
   }
 
-  const cards = (Object.keys(CATS) as CatKey[]).map((key) => categoryCard(key, stats, noRuns));
+  const cards = Object.keys(CATS).map((key) => categoryCard(key, stats, noRuns));
   const scored = cards.filter((c) => c.score != null);
   const power = noRuns || !scored.length ? null : Math.round(scored.reduce((a, c) => a + Math.max(0, Math.min(100, c.score!)), 0) / scored.length);
   const band = noRuns ? "" : `M${poly(shape.hi).split(" ").join(" L")} Z M${poly(shape.lo).split(" ").join(" L")} Z`;
@@ -263,7 +265,7 @@ export default function SkillChart({ entry, sample }: { entry: ResultEntry; samp
   );
 }
 
-function categoryCard(key: CatKey, stats: SpokeStat[], noRuns: boolean) {
+function categoryCard(key: string, stats: SpokeStat[], noRuns: boolean) {
   const measured = stats.filter((s) => s.cat === key && s.measured);
   if (!measured.length) return { key, grade: "–", value: "—", sub: "not in report", score: null, fill: 20 };
   const head = measured[0];

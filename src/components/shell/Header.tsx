@@ -7,10 +7,10 @@ import OrbLogo from "./OrbLogo";
 
 const NAV = [
   { href: "/", label: "Get started" },
+  { href: "/models", label: "Models" },
   { href: "/tuners", label: "Tuners" },
   { href: "/results", label: "Results" },
   { href: "/verify", label: "Verify" },
-  { href: "/ranking", label: "Ranking" },
 ];
 
 export default function Header() {

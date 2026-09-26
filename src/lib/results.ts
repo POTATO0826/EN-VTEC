@@ -5,25 +5,18 @@
  * same code.
  */
 
-export type SpokeKey = "speed" | "best" | "worst" | "cold" | "noise" | "precision";
-export type CatKey = "speed" | "tail" | "stability" | "accuracy";
-export type Metrics = Partial<Record<SpokeKey, number>>;
-
-export const CATS: Record<CatKey, { label: string; color: string }> = {
-  speed: { label: "SPEED", color: "#f2b84b" },
-  tail: { label: "TAIL", color: "#a98bf5" },
-  stability: { label: "STABILITY", color: "#63d3e8" },
-  accuracy: { label: "ACCURACY", color: "#6fcf97" },
-};
+export type SpokeSetId = "harness" | "model";
+export type Metrics = Partial<Record<string, number>>;
+export type Cat = { label: string; color: string };
 
 export type Spoke = {
-  key: SpokeKey;
+  key: string;
   label: string;
   name: string;
   unit: string;
-  cat: CatKey;
-  /** Smaller is better; true for every spoke, since the harness measures time, spread and error. */
-  lower: true;
+  cat: string;
+  /** Smaller is better (times, energy, error). */
+  lower: boolean;
   dp: number;
   /**
    * "baseline": 0 = the baseline kernel's value, 100 = the leaderboard's best.
@@ -32,16 +25,48 @@ export type Spoke = {
   scale: "baseline" | "tolerance";
 };
 
-// Hexagon, clockwise from the top. Spokes of one category sit next to each
-// other. Everything here is what the verifier's harness measures itself.
-export const SPOKES: Spoke[] = [
-  { key: "speed", label: "SPEED", name: "Median run", unit: "s", cat: "speed", lower: true, dp: 2, scale: "baseline" },
-  { key: "best", label: "BEST", name: "Fastest run", unit: "s", cat: "speed", lower: true, dp: 2, scale: "baseline" },
-  { key: "worst", label: "WORST", name: "Slowest run", unit: "s", cat: "tail", lower: true, dp: 2, scale: "baseline" },
-  { key: "cold", label: "COLD START", name: "Warm-up run", unit: "s", cat: "tail", lower: true, dp: 2, scale: "baseline" },
-  { key: "noise", label: "NOISE", name: "Run-to-run spread", unit: "%", cat: "stability", lower: true, dp: 1, scale: "baseline" },
-  { key: "precision", label: "PRECISION", name: "Max deviation", unit: "", cat: "accuracy", lower: true, dp: 1, scale: "tolerance" },
-];
+export type SpokeSet = { spokes: Spoke[]; cats: Record<string, Cat> };
+
+// Hexagons, clockwise from the top. Spokes of one category sit next to each other.
+export const SPOKE_SETS: Record<SpokeSetId, SpokeSet> = {
+  // What a verifier's harness measures itself when it re-runs a kernel.
+  harness: {
+    cats: {
+      speed: { label: "SPEED", color: "#f2b84b" },
+      tail: { label: "TAIL", color: "#a98bf5" },
+      stability: { label: "STABILITY", color: "#63d3e8" },
+      accuracy: { label: "ACCURACY", color: "#6fcf97" },
+    },
+    spokes: [
+      { key: "speed", label: "SPEED", name: "Median run", unit: "s", cat: "speed", lower: true, dp: 2, scale: "baseline" },
+      { key: "best", label: "BEST", name: "Fastest run", unit: "s", cat: "speed", lower: true, dp: 2, scale: "baseline" },
+      { key: "worst", label: "WORST", name: "Slowest run", unit: "s", cat: "tail", lower: true, dp: 2, scale: "baseline" },
+      { key: "cold", label: "COLD START", name: "Warm-up run", unit: "s", cat: "tail", lower: true, dp: 2, scale: "baseline" },
+      { key: "noise", label: "NOISE", name: "Run-to-run spread", unit: "%", cat: "stability", lower: true, dp: 1, scale: "baseline" },
+      { key: "precision", label: "PRECISION", name: "Max deviation", unit: "", cat: "accuracy", lower: true, dp: 1, scale: "tolerance" },
+    ],
+  },
+  // How a local model performs on a workload with a kernel in place.
+  model: {
+    cats: {
+      tps: { label: "TPS", color: "#63d3e8" },
+      tpm: { label: "TPM", color: "#a98bf5" },
+      energy: { label: "ENERGY", color: "#6fcf97" },
+      speed: { label: "SPEED", color: "#f2b84b" },
+    },
+    spokes: [
+      { key: "tpm", label: "TPM", name: "Sustained TPM", unit: "tok/min", cat: "tpm", lower: false, dp: 0, scale: "baseline" },
+      { key: "energy", label: "ENERGY", name: "Energy", unit: "J/tok", cat: "energy", lower: true, dp: 3, scale: "baseline" },
+      { key: "speed", label: "SPEED", name: "Kernel time", unit: "µs", cat: "speed", lower: true, dp: 1, scale: "baseline" },
+      { key: "p99", label: "P99", name: "p99 latency", unit: "ms", cat: "speed", lower: true, dp: 1, scale: "baseline" },
+      { key: "prefill", label: "PREFILL", name: "Prefill TPS", unit: "tok/s", cat: "tps", lower: false, dp: 0, scale: "baseline" },
+      { key: "tps", label: "TPS", name: "Decode TPS", unit: "tok/s", cat: "tps", lower: false, dp: 1, scale: "baseline" },
+    ],
+  },
+};
+
+/** The harness set, for code that builds harness entries. */
+export const SPOKES = SPOKE_SETS.harness.spokes;
 
 export type Status = "pending" | "verifying" | "verified" | "rejected";
 
@@ -84,6 +109,8 @@ export type Evidence = {
 
 export type ResultEntry = {
   id: string;
+  /** Which hexagon this entry is scored on. */
+  set: SpokeSetId;
   /** Short name for the orb. */
   label: string;
   workload: string;
@@ -98,8 +125,8 @@ export type ResultEntry = {
   top1: Metrics;
   /** One per verifier whose output matched the baseline. */
   runs: { who: string; metrics: Metrics }[];
-  /** The track's output tolerance: the 0 ring of the PRECISION spoke. */
-  tolerance: number;
+  /** The track's output tolerance: the 0 ring of a "tolerance" spoke. */
+  tolerance?: number;
   detail: Evidence;
 };
 
@@ -142,6 +169,7 @@ export function valueText(s: Spoke, v: number | null | undefined) {
   if (v == null) return "—";
   if (s.scale === "tolerance") return sci(v);
   if (s.unit === "%") return `±${fmt(v, s.dp)}%`;
+  if (s.unit === "") return fmt(v, s.dp);
   return `${fmt(v, s.dp)} ${s.unit}`;
 }
 
@@ -166,7 +194,7 @@ export type SpokeStat = Spoke & {
 
 /** Per-spoke shape for one entry: scores for the chart plus the real values. */
 export function spokeStats(entry: ResultEntry): SpokeStat[] {
-  return SPOKES.map((s) => {
+  return SPOKE_SETS[entry.set].spokes.map((s) => {
     const base = s.scale === "tolerance" ? entry.tolerance : entry.baseline[s.key];
     const vals = entry.runs.map((run) => run.metrics[s.key]).filter((v): v is number => v != null);
     const r = range(vals);
@@ -181,20 +209,20 @@ export function spokeStats(entry: ResultEntry): SpokeStat[] {
       // Linear in the error: at the tolerance = 0, bit-exact = 100.
       score = (v) => clamp((1 - v / base) * 100);
     } else {
-      const imp = (v: number) => base / v;
+      const imp = (v: number) => (s.lower ? base / v : v / base);
       const best = Math.max(imp(entry.top1[s.key] ?? base), ...vals.map(imp));
-      const bestVal = base / best;
-      score = (v) => normalize(v, base, bestVal, true);
+      const bestVal = s.lower ? base / best : base * best;
+      score = (v) => normalize(v, base, bestVal, s.lower);
     }
     const ghostVal = entry.top1[s.key];
-    const pctMed = r && s.scale === "baseline" ? pctVsBaseline(r.median, base, true) : null;
+    const pctMed = r && s.scale === "baseline" ? pctVsBaseline(r.median, base, s.lower) : null;
     return {
       ...s,
       measured: true,
       r,
       baseline: base,
       med: r ? score(r.median) : 0,
-      // Lower is better: the smallest value scores highest.
+      // The better end of the range scores highest, whichever way the spoke runs.
       lo: r ? Math.min(score(r.min), score(r.max)) : 0,
       hi: r ? Math.max(score(r.min), score(r.max)) : 0,
       ghost: ghostVal != null ? score(ghostVal) : 0,
@@ -311,7 +339,7 @@ export function buildSteps(d: Evidence, tx: (digest: string) => string): Step[] 
           state: "done",
           title: `Verified at ${times(d.outcome?.speedup)}, now on the ranking`,
           summary: "Listed on the Kernel Code Efficiency Ranking.",
-          link: { label: "View ranking", href: "/ranking" },
+          link: { label: "View ranking", href: "/models" },
           time: d.outcome ? hhmm(d.outcome.at) : undefined,
         }
       : d.status === "rejected"

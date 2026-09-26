@@ -17,7 +17,7 @@ import { hasBuild, load } from "@/lib/server/store";
 import { kick } from "@/lib/server/verification";
 
 // Submissions for one track with their verification progress. Nothing here is
-// a ranking: only verified entries count, and they live on /ranking.
+// a ranking: only verified entries count, and they live on each model's page.
 export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]">) {
   const { id } = await ctx.params;
   if (!findTrack(id)) return Response.json({ error: "unknown_track" }, { status: 404 });
