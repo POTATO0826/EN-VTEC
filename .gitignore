@@ -21,3 +21,12 @@ __pycache__/
 
 # Python venv
 .venv/
+
+# local tool binaries
+.tools/
+
+# verifier scratch builds
+.vtec-runs/
+
+# Move build output
+move/*/build/

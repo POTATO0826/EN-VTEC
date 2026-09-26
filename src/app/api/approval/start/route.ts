@@ -1,16 +1,11 @@
 import { findTrack } from "@/lib/catalog";
 import { load, update } from "@/lib/server/store";
+import { missingSuiEnv, sui } from "@/lib/server/sui";
 import { missingIdkitEnv, signedRequest } from "@/lib/server/world";
 
-// Human in the loop: before the agent may submit, a verified human approves
-// this one submission with World ID. The action names the track and a fresh
-// approval id, so the proof can't be reused for any other submission.
+// Permission for one agent submission. World ID verified users approve it with
+// World ID (free). Everyone else stakes SUI against it instead.
 export async function POST(request: Request) {
-  const missing = missingIdkitEnv();
-  if (missing.length > 0) {
-    return Response.json({ error: "world_not_configured", missing }, { status: 503 });
-  }
-
   const body = (await request.json().catch(() => null)) as {
     sessionId?: string;
     trackId?: string;
@@ -20,10 +15,16 @@ export async function POST(request: Request) {
     return Response.json({ error: "missing_fields" }, { status: 400 });
   }
 
-  // Only seat holders can submit.
   const data = await load();
-  if (!data.seats.some((s) => s.sessionId === body.sessionId)) {
-    return Response.json({ error: "no_seat" }, { status: 403 });
+  const verified = data.seats.some((s) => s.sessionId === body.sessionId);
+  const kind = verified ? "worldid" : "stake";
+
+  const missing = verified ? missingIdkitEnv() : missingSuiEnv();
+  if (missing.length > 0) {
+    return Response.json(
+      { error: verified ? "world_not_configured" : "sui_not_configured", missing },
+      { status: 503 },
+    );
   }
 
   const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
@@ -33,15 +34,27 @@ export async function POST(request: Request) {
       id,
       sessionId: body.sessionId!,
       trackId: track.id,
+      kind,
       action,
       status: "pending",
       nullifier: null,
+      stake: null,
       at: new Date().toISOString(),
     });
   });
 
+  if (kind === "stake") {
+    return Response.json({
+      approvalId: id,
+      kind,
+      stakeMist: sui.stakeMist.toString(),
+      packageId: sui.packageId,
+      vaultId: sui.vaultId,
+    });
+  }
   return Response.json({
     approvalId: id,
+    kind,
     ...signedRequest(action, `Let my VTEC agent submit one build to ${track.name}`),
   });
 }

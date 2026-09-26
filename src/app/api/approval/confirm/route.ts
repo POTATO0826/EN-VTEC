@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   }
 
   const approval = (await load()).approvals.find(
-    (a) => a.id === body.approvalId && a.sessionId === body.sessionId,
+    (a) => a.id === body.approvalId && a.sessionId === body.sessionId && a.kind === "worldid",
   );
   if (!approval) return Response.json({ error: "unknown_approval" }, { status: 404 });
   if (approval.status === "approved") return Response.json({ ok: true });

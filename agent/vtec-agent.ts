@@ -7,20 +7,40 @@
  *       showed <CODE> on the Get started page.
  *
  *   bun agent/vtec-agent.ts submit <CODE> --track <id> [--build <dir>] [--run "<command>"]
- *       Hashes the build (SHA-256), runs it, hashes its output, and submits.
- *       --build defaults to tracks/<id>/baseline. --run defaults to the "run"
- *       command in the build's vtec.json. Needs a World ID approval first.
+ *       Hashes the build (SHA-256), runs it, hashes its output and uploads the
+ *       exact files. The submission starts as PENDING until verifiers agree.
+ *       --build defaults to tracks/<id>/baseline; --run defaults to the "run"
+ *       command in the build's vtec.json.
+ *
+ *   bun agent/vtec-agent.ts verify <CODE> [--runs 5]
+ *       Runs every verification you approved with World ID: checks this
+ *       machine can run the build, downloads the exact code, runs baseline and
+ *       candidate alternately, then commits and later reveals the report.
+ *
+ *   bun agent/vtec-agent.ts reveal <CODE>
+ *       Reveals reports saved by an earlier `verify` that timed out waiting.
  *
  * Options: --url <app url>  (default http://127.0.0.1:3000, or VTEC_URL)
  */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const args = process.argv.slice(2);
 const [command, code] = args;
+const REPO = path.resolve(import.meta.dir, "..");
+const REVEALS = path.join(os.homedir(), ".vtec", "reveals");
 
 function flag(name: string) {
   const i = args.indexOf(`--${name}`);
@@ -33,6 +53,10 @@ function fail(message: string): never {
   console.error(`✗ ${message}`);
   process.exit(1);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Hardware                                                                    */
+/* -------------------------------------------------------------------------- */
 
 type Gpu = { name: string; memoryMb: number | null; driver: string | null };
 
@@ -57,11 +81,7 @@ function detectGpus(): Gpu[] {
   if (process.platform === "win32") {
     const wmi = spawnSync(
       "powershell",
-      [
-        "-NoProfile",
-        "-Command",
-        "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + '|' + $_.DriverVersion }",
-      ],
+      ["-NoProfile", "-Command", "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + '|' + $_.DriverVersion }"],
       { encoding: "utf8" },
     );
     if (wmi.status === 0) {
@@ -78,50 +98,159 @@ function detectGpus(): Gpu[] {
   return [];
 }
 
-async function post(route: string, body: unknown) {
+function cpuName() {
+  return os.cpus()[0]?.model.trim() ?? "unknown CPU";
+}
+
+type Requirements = { nvidiaDriver?: string; ffmpegEncoders?: string[] };
+
+/** Can this machine run a build with these requirements? */
+function checkCompatible(requires: Requirements): { ok: true } | { ok: false; reason: string } {
+  if (requires.nvidiaDriver) {
+    const nvidia = detectGpus().find((g) => /nvidia/i.test(g.name));
+    if (!nvidia?.driver) return { ok: false, reason: "needs an NVIDIA GPU" };
+    if (Number.parseFloat(nvidia.driver) < Number.parseFloat(requires.nvidiaDriver)) {
+      return { ok: false, reason: `needs NVIDIA driver ${requires.nvidiaDriver}+, this machine has ${nvidia.driver}` };
+    }
+  }
+  for (const encoder of requires.ffmpegEncoders ?? []) {
+    // Listing an encoder isn't enough (NVENC is listed on old drivers too), so
+    // actually encode one tiny frame with it.
+    const probe = spawnSync(
+      "ffmpeg",
+      ["-loglevel", "error", "-f", "lavfi", "-i", "color=size=256x256:duration=0.1", "-c:v", encoder, "-f", "null", "-"],
+      { encoding: "utf8" },
+    );
+    if (probe.status !== 0) return { ok: false, reason: `ffmpeg encoder ${encoder} doesn't work here` };
+  }
+  return { ok: true };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Builds                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** Every file in the build, relative path -> base64. */
+function readBuild(dir: string) {
+  const files: Record<string, string> = {};
+  const walk = (current: string) => {
+    for (const entry of readdirSync(current)) {
+      if (entry === "node_modules" || entry === ".git") continue;
+      const full = path.join(current, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else files[path.relative(dir, full).replaceAll("\\", "/")] = readFileSync(full).toString("base64");
+    }
+  };
+  walk(dir);
+  return files;
+}
+
+/** SHA-256 over path + bytes of every file, in sorted path order. The server recomputes this. */
+function hashFiles(files: Record<string, string>) {
+  const h = createHash("sha256");
+  for (const name of Object.keys(files).sort()) {
+    h.update(name);
+    h.update(Buffer.from(files[name], "base64"));
+  }
+  return h.digest("hex");
+}
+
+function manifestOf(dir: string) {
+  const file = path.join(dir, "vtec.json");
+  return existsSync(file)
+    ? (JSON.parse(readFileSync(file, "utf8")) as { name?: string; run?: string; requires?: Requirements })
+    : {};
+}
+
+/**
+ * Runs a build once. VTEC_SEED varies the input so answers can't be
+ * hardcoded; VTEC_OUT is where builds that produce a file must write it.
+ * Returns wall time and the SHA-256 of what it printed.
+ */
+function runOnce(dir: string, run: string, seed = "0", out?: string) {
+  const started = performance.now();
+  const result = spawnSync(run, {
+    shell: true,
+    cwd: dir,
+    encoding: "buffer",
+    env: { ...process.env, VTEC_SEED: seed, ...(out ? { VTEC_OUT: out } : {}) },
+  });
+  const ms = performance.now() - started;
+  if (result.status !== 0) {
+    process.stderr.write(result.stderr);
+    fail(`Run failed in ${dir} (exit ${result.status}).`);
+  }
+  return { ms, sha256: createHash("sha256").update(result.stdout).digest("hex") };
+}
+
+/**
+ * The harness's own look at a video: it counts decoded frames and grabs a tiny
+ * thumbnail from the middle. It never trusts what the build printed.
+ */
+function inspectVideo(file: string) {
+  if (!existsSync(file)) return null;
+  const probe = spawnSync(
+    "ffprobe",
+    ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries",
+      "stream=codec_name,width,height,r_frame_rate,nb_read_frames", "-of", "csv=p=0", file],
+    { encoding: "utf8" },
+  );
+  const thumb = spawnSync(
+    "ffmpeg",
+    ["-loglevel", "error", "-ss", "60", "-i", file, "-frames:v", "1", "-vf", "scale=16:9", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+    { encoding: "buffer" },
+  );
+  return { stream: probe.stdout.trim(), thumb: thumb.stdout };
+}
+
+/** Same stream shape and (lossy-encoding tolerant) same picture. */
+function sameVideo(a: ReturnType<typeof inspectVideo>, b: ReturnType<typeof inspectVideo>) {
+  if (!a || !b || !a.stream || a.stream !== b.stream || a.thumb.length !== b.thumb.length || a.thumb.length === 0) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.thumb.length; i++) diff += Math.abs(a.thumb[i] - b.thumb[i]);
+  return diff / a.thumb.length < 8;
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+/* -------------------------------------------------------------------------- */
+/* HTTP                                                                        */
+/* -------------------------------------------------------------------------- */
+
+async function call(route: string, body?: unknown) {
   let res: Response;
   try {
     res = await fetch(`${URL_BASE}${route}`, {
-      method: "POST",
+      method: body === undefined ? "GET" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
     fail(`Can't reach ${URL_BASE}. Is the app running?`);
   }
-  const data = (await res.json().catch(() => ({}))) as Record<string, string>;
-  if (!res.ok) fail(data.detail ?? data.error ?? `HTTP ${res.status}`);
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function post(route: string, body: unknown) {
+  const { ok, status, data } = await call(route, body);
+  if (!ok) fail(String(data.detail ?? data.error ?? `HTTP ${status}`));
   return data;
 }
 
-/** SHA-256 over every file in the build, in a fixed order, with its path. */
-function hashDir(dir: string) {
-  const hash = createHash("sha256");
-  const walk = (current: string) => {
-    for (const entry of readdirSync(current).sort()) {
-      if (entry === "node_modules" || entry === ".git") continue;
-      const full = path.join(current, entry);
-      if (statSync(full).isDirectory()) walk(full);
-      else {
-        hash.update(path.relative(dir, full).replaceAll("\\", "/"));
-        hash.update(readFileSync(full));
-      }
-    }
-  };
-  walk(dir);
-  return hash.digest("hex");
-}
+/* -------------------------------------------------------------------------- */
+/* Commands                                                                    */
+/* -------------------------------------------------------------------------- */
 
 async function pair() {
   if (!code) fail("Usage: vtec-agent pair <CODE>");
   const gpus = detectGpus();
-  const info = {
-    code,
-    hostname: os.hostname(),
-    os: `${os.type()} ${os.release()}`,
-    cpu: os.cpus()[0]?.model.trim() ?? "unknown CPU",
-    gpus,
-  };
+  const info = { code, hostname: os.hostname(), os: `${os.type()} ${os.release()}`, cpu: cpuName(), gpus };
   await post("/api/agent/hello", info);
   console.log(`✓ Paired ${info.hostname}`);
   for (const gpu of gpus) {
@@ -133,42 +262,184 @@ async function pair() {
 
 async function submit() {
   const track = flag("track");
-  if (!code || !track) fail("Usage: vtec-agent submit <CODE> --track <id> [--build <dir>] [--run \"<command>\"]");
+  if (!code || !track) fail('Usage: vtec-agent submit <CODE> --track <id> [--build <dir>] [--run "<command>"]');
 
-  // Default build: the track's baseline, shipped in this repo.
-  const repo = path.resolve(import.meta.dir, "..");
-  const build = flag("build") ?? path.join(repo, "tracks", track, "baseline");
+  const build = path.resolve(flag("build") ?? path.join(REPO, "tracks", track, "baseline"));
   if (!existsSync(build)) fail(`Build folder not found: ${build}`);
+  const manifest = manifestOf(build);
+  const run = flag("run") ?? manifest.run;
+  if (!run) fail(`No --run given and no "run" in ${path.join(build, "vtec.json")}`);
+  if (manifest.name) console.log(`• build  ${manifest.name}`);
 
-  // Default command: whatever the build says in its vtec.json.
-  let run = flag("run");
-  const manifest = path.join(build, "vtec.json");
-  if (!run && existsSync(manifest)) {
-    const meta = JSON.parse(readFileSync(manifest, "utf8")) as { name?: string; run?: string };
-    run = meta.run;
-    if (meta.name) console.log(`• build  ${meta.name}`);
+  const compat = checkCompatible(manifest.requires ?? {});
+  if (!compat.ok) fail(`This machine can't run the build: ${compat.reason}.`);
+
+  // Hash before running, so nothing the run writes can change the code hash.
+  const files = readBuild(build);
+  const buildSha256 = hashFiles(files);
+  console.log(`• code   sha256 ${buildSha256}`);
+
+  const { ms, sha256: resultSha256 } = runOnce(build, run);
+  console.log(`• output sha256 ${resultSha256}`);
+  console.log(`• time   ${(ms / 1000).toFixed(3)} s`);
+
+  const data = await post("/api/agent/submit", {
+    code,
+    trackId: track,
+    buildName: manifest.name ?? path.basename(build),
+    buildSha256,
+    resultSha256,
+    seconds: ms / 1000,
+    requires: manifest.requires ?? {},
+    files,
+  });
+  console.log(`✓ Submitted ${data.id}: pending verification. It reaches the ranking once verifiers agree.`);
+}
+
+type Job = {
+  assignmentId: string;
+  status: "approved" | "committed";
+  revealOpen: boolean;
+  submission: { id: string; trackId: string; buildName: string; buildSha256: string; requires: Requirements };
+};
+
+async function verifyOne(job: Job, runs: number) {
+  const sub = job.submission;
+  console.log(`\n▶ ${sub.id} · ${sub.trackId} · ${sub.buildName}`);
+  const hardware = [detectGpus()[0]?.name, cpuName()].filter(Boolean).join(" + ");
+
+  // 1. Compatibility: say "can't verify" instead of failing the tuner.
+  const compat = checkCompatible(sub.requires ?? {});
+  let report;
+  if (!compat.ok) {
+    console.log(`  ⚠ not compatible: ${compat.reason}`);
+    report = {
+      compatible: false, reason: compat.reason, hardware, hashMatches: false, correct: false,
+      runs: 0, baselineMedianMs: 0, candidateMedianMs: 0, noisePct: 0, speedup: 0, pass: false,
+    };
+  } else {
+    // 2. The exact code: download it and check its hash ourselves.
+    const { ok, data } = await call(`/api/agent/build?code=${code}&sha=${sub.buildSha256}`);
+    if (!ok) fail(String(data.detail ?? data.error));
+    const files = data.files as Record<string, string>;
+    const hashMatches = hashFiles(files) === sub.buildSha256;
+    console.log(`  code hash ${hashMatches ? "matches" : "DOES NOT match"} the submission`);
+
+    // Inside the repo, so the build resolves the same packages the baseline uses.
+    mkdirSync(path.join(REPO, ".vtec-runs"), { recursive: true });
+    const dir = mkdtempSync(path.join(REPO, ".vtec-runs", "verify-"));
+    for (const [name, b64] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+      writeFileSync(path.join(dir, name), Buffer.from(b64, "base64"));
+    }
+    const candidateRun = manifestOf(dir).run;
+    const baselineDir = path.join(REPO, "tracks", sub.trackId, "baseline");
+    const baselineRun = manifestOf(baselineDir).run;
+    if (!candidateRun || !baselineRun) fail("Build or baseline has no run command.");
+
+    // 3. Harness: warm-up, then alternate baseline and candidate so drift in
+    //    temperature or clocks hits both equally. Every pair gets a fresh
+    //    seed, and both must produce the same answer for it.
+    const scratch = mkdtempSync(path.join(os.tmpdir(), "vtec-out-"));
+    const baseOut = path.join(scratch, "baseline.mp4");
+    const candOut = path.join(scratch, "candidate.mp4");
+    console.log(`  warm-up…`);
+    runOnce(baselineDir, baselineRun, "0", baseOut);
+    runOnce(dir, candidateRun, "0", candOut);
+    const base: number[] = [];
+    const cand: number[] = [];
+    let correct = true;
+    for (let i = 0; i < runs; i++) {
+      const seed = String(randomBytes(2).readUInt16BE() % 360);
+      rmSync(baseOut, { force: true });
+      rmSync(candOut, { force: true });
+      const b = runOnce(baselineDir, baselineRun, seed, baseOut);
+      const c = runOnce(dir, candidateRun, seed, candOut);
+      base.push(b.ms);
+      cand.push(c.ms);
+      const video = existsSync(baseOut) ? sameVideo(inspectVideo(baseOut), inspectVideo(candOut)) : true;
+      const same = b.sha256 === c.sha256 && video;
+      correct &&= same;
+      console.log(
+        `  run ${i + 1}/${runs}  seed ${seed.padStart(3)}  baseline ${(b.ms / 1000).toFixed(2)} s   candidate ${(c.ms / 1000).toFixed(2)} s   ${same ? "same output" : "DIFFERENT OUTPUT"}`,
+      );
+    }
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
+
+    const baselineMedianMs = median(base);
+    const candidateMedianMs = median(cand);
+    // Noise: how much the baseline disagrees with itself run to run.
+    const noisePct = ((Math.max(...base) - Math.min(...base)) / baselineMedianMs) * 100;
+    const speedup = baselineMedianMs / candidateMedianMs;
+    const gainPct = (speedup - 1) * 100;
+    const pass = hashMatches && correct && gainPct > 1 && gainPct > noisePct;
+
+    report = {
+      compatible: true, hardware, hashMatches, correct, runs,
+      baselineMedianMs: Math.round(baselineMedianMs),
+      candidateMedianMs: Math.round(candidateMedianMs),
+      noisePct: Math.round(noisePct * 10) / 10,
+      speedup: Math.round(speedup * 1000) / 1000,
+      pass,
+    };
+    console.log(`  correct ${correct ? "yes" : "NO"} · speedup ${report.speedup}× · noise ±${report.noisePct}% → ${pass ? "PASS" : "FAIL"}`);
   }
-  if (!run) fail(`No --run given and no "run" in ${manifest}`);
 
-  const buildSha256 = hashDir(path.resolve(build));
-  console.log(`• build  sha256 ${buildSha256}`);
+  // 4. Commit now, reveal once every verifier has committed.
+  const salt = randomBytes(16).toString("hex");
+  const commit = createHash("sha256").update(JSON.stringify(report)).update(salt).digest("hex");
+  await post("/api/agent/commit", { code, assignmentId: job.assignmentId, commit });
+  mkdirSync(REVEALS, { recursive: true });
+  writeFileSync(path.join(REVEALS, `${job.assignmentId}.json`), JSON.stringify({ report, salt }));
+  console.log(`  committed. Waiting for the other verifiers to commit…`);
+  await revealWhenOpen(job.assignmentId, 10 * 60_000);
+}
 
-  const started = performance.now();
-  const result = spawnSync(run, { shell: true, cwd: path.resolve(build), encoding: "buffer" });
-  const seconds = (performance.now() - started) / 1000;
-  if (result.status !== 0) {
-    process.stderr.write(result.stderr);
-    fail(`Benchmark failed (exit ${result.status}).`);
+async function revealWhenOpen(assignmentId: string, timeoutMs: number) {
+  const saved = JSON.parse(readFileSync(path.join(REVEALS, `${assignmentId}.json`), "utf8"));
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { ok, status, data } = await call("/api/agent/reveal", { code, assignmentId, ...saved });
+    if (ok) {
+      rmSync(path.join(REVEALS, `${assignmentId}.json`), { force: true });
+      console.log(`  ✓ revealed. Submission is now: ${data.submissionStatus}`);
+      return;
+    }
+    if (status !== 425) fail(String(data.detail ?? data.error));
+    await new Promise((r) => setTimeout(r, 5000));
   }
+  console.log(`  still waiting. Run \`bun agent/vtec-agent.ts reveal ${code}\` later.`);
+}
 
-  const resultSha256 = createHash("sha256").update(result.stdout).digest("hex");
-  console.log(`• result sha256 ${resultSha256}`);
-  console.log(`• time   ${seconds.toFixed(3)} s`);
+async function verify() {
+  if (!code) fail("Usage: vtec-agent verify <CODE> [--runs 5]");
+  const runs = Math.max(3, Number(flag("runs") ?? 5));
+  const { ok, data } = await call(`/api/agent/assignments?code=${code}`);
+  if (!ok) fail(String(data.detail ?? data.error));
+  const jobs = (data.jobs as Job[]).filter((j) => j.status === "approved");
+  if (jobs.length === 0) {
+    const waiting = Number(data.pendingApproval ?? 0);
+    console.log(
+      waiting > 0
+        ? `No approved jobs. ${waiting} assignment(s) need your World ID approval on the Verify page.`
+        : "No verification jobs assigned to you right now.",
+    );
+    return;
+  }
+  for (const job of jobs) await verifyOne(job, runs);
+}
 
-  const data = await post("/api/agent/submit", { code, trackId: track, buildSha256, resultSha256, seconds });
-  console.log(`✓ Submitted (${data.id})`);
+async function reveal() {
+  if (!code) fail("Usage: vtec-agent reveal <CODE>");
+  if (!existsSync(REVEALS)) return console.log("Nothing to reveal.");
+  const pending = readdirSync(REVEALS).filter((f) => f.endsWith(".json"));
+  if (pending.length === 0) return console.log("Nothing to reveal.");
+  for (const file of pending) await revealWhenOpen(file.replace(/\.json$/, ""), 60_000);
 }
 
 if (command === "pair") await pair();
 else if (command === "submit") await submit();
-else fail("Commands: pair <CODE> | submit <CODE> --track <id> --build <dir> --run \"<command>\"");
+else if (command === "verify") await verify();
+else if (command === "reveal") await reveal();
+else fail("Commands: pair <CODE> | submit <CODE> --track <id> | verify <CODE> | reveal <CODE>");

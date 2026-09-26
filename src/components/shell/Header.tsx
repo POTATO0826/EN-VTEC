@@ -8,6 +8,8 @@ import OrbLogo from "./OrbLogo";
 const NAV = [
   { href: "/", label: "Get started" },
   { href: "/tuners", label: "Tuners" },
+  { href: "/verify", label: "Verify" },
+  { href: "/ranking", label: "Ranking" },
 ];
 
 export default function Header() {
@@ -21,14 +23,14 @@ export default function Header() {
           <OrbLogo size={28} />
           <span className="text-sm font-semibold tracking-[0.08em]">VTEC</span>
         </Link>
-        <nav className="flex items-center gap-1">
+        <nav className="flex items-center gap-0.5 overflow-x-auto">
           {NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               aria-current={active(item.href) ? "page" : undefined}
               className={cn(
-                "rounded-md px-3 py-1.5 text-sm transition-colors",
+                "rounded-md px-2.5 py-1.5 text-sm whitespace-nowrap transition-colors duration-200 sm:px-3",
                 active(item.href)
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:text-foreground",

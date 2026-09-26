@@ -1,0 +1,6 @@
+[package]
+name = "vtec"
+edition = "2024"
+
+[addresses]
+vtec = "0x0"

@@ -1,4 +1,5 @@
 {
-  "name": "NVENC (GPU encoder, needs NVIDIA driver 570+)",
-  "run": "bun render.ts"
+  "name": "NVENC (GPU encoder)",
+  "run": "bun render.ts",
+  "requires": { "nvidiaDriver": "570", "ffmpegEncoders": ["h264_nvenc"] }
 }

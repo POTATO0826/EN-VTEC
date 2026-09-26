@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
+import "@mysten/dapp-kit/dist/index.css";
+import AppProviders from "@/components/providers/AppProviders";
 import Background from "@/components/shell/Background";
 import Header from "@/components/shell/Header";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "VTEC",
-  description: "Tuned local agents for Web3 workloads, verified by World ID.",
+  description: "Tuned local agents for Web3 workloads, verified by real humans and settled on Sui.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -20,13 +22,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         />
       </head>
       <body className="min-h-screen">
-        <Background />
-        <div className="relative z-[2] flex min-h-screen flex-col">
-          <Header />
-          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 md:px-8 md:py-14">
-            {children}
-          </main>
-        </div>
+        <AppProviders>
+          <Background />
+          <div className="relative z-[2] flex min-h-screen flex-col">
+            <Header />
+            <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 md:px-8 md:py-14">
+              {children}
+            </main>
+          </div>
+        </AppProviders>
       </body>
     </html>
   );

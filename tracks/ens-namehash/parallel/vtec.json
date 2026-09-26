@@ -1,0 +1,4 @@
+{
+  "name": "parallel (worker threads)",
+  "run": "bun namehash.ts"
+}

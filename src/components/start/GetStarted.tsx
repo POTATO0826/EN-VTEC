@@ -9,12 +9,13 @@ import { Button } from "@/components/ui/button";
 import { PageTitle, Step, type StepState } from "@/components/ui/step";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import { TASKS } from "@/lib/catalog";
+import { SUI } from "@/lib/sui-tx";
 import { detectFromBrowser, type Device } from "@/lib/detect";
 import { useSessionId, useSessionStatus } from "@/lib/session";
 
 const CHOICES_KEY = "vtec.choices";
 
-type Choices = { device: Device | null; taskId: string | null };
+type Choices = { device: Device | null; taskId: string | null; skippedWorld?: boolean };
 
 function useChoices() {
   const [choices, setChoices] = React.useState<Choices>({ device: null, taskId: null });
@@ -46,7 +47,7 @@ export default function GetStarted() {
   const done = {
     1: !!choices.device,
     2: !!choices.taskId,
-    3: !!status?.seat,
+    3: !!status?.seat || !!choices.skippedWorld,
     4: !!status?.agent,
   };
   const firstOpen = ([1, 2, 3, 4] as const).find((n) => !done[n]) ?? null;
@@ -99,25 +100,48 @@ export default function GetStarted() {
 
         <Step
           n={3}
-          title="Verify you're human"
+          title="Verify you're human (optional)"
           state={stateOf(3)}
           summary={
             status?.seat ? (
               <span className="vtec-num">seat {status.seat.nullifier.slice(0, 10)}…</span>
+            ) : choices.skippedWorld ? (
+              <EditLink onClick={edit(3)}>not verified · stake {SUI.stakeSui} SUI per submission</EditLink>
             ) : null
           }
         >
-          <p className="mb-4 max-w-xl text-sm text-muted-foreground">
-            One person gets one tuner seat. World ID proves you're a unique human without telling us who you are.
-          </p>
+          <div className="mb-5 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-border/70 p-4">
+              <p className="text-sm font-medium">Verified with World ID</p>
+              <p className="mt-1 text-sm text-muted-foreground">Free. No stake. You can also join the verifier pool.</p>
+            </div>
+            <div className="rounded-lg border border-border/70 p-4">
+              <p className="text-sm font-medium">Not verified</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Stake {SUI.stakeSui} SUI on every submission with Slush. You get it back if verifiers confirm your build.
+              </p>
+            </div>
+          </div>
           {sessionId ? (
-            <WorldIdButton
-              label="Verify with World ID"
-              sessionId={sessionId}
-              start={() => postJson("/api/world/rp-signature", {})}
-              confirm={(proof) => postJson("/api/world/claim-seat", { sessionId, idkitResponse: proof })}
-              onDone={refresh}
-            />
+            <div className="flex flex-wrap items-start gap-3">
+              <WorldIdButton
+                label="Verify with World ID"
+                sessionId={sessionId}
+                start={() => postJson("/api/world/rp-signature", {})}
+                confirm={(proof) => postJson("/api/world/claim-seat", { sessionId, idkitResponse: proof })}
+                onDone={refresh}
+              />
+              <Button
+                variant="ghost"
+                className="rounded-full text-muted-foreground"
+                onClick={() => {
+                  setChoices({ ...choices, skippedWorld: true });
+                  setEditing(null);
+                }}
+              >
+                Skip, I&apos;ll stake SUI
+              </Button>
+            </div>
           ) : null}
         </Step>
 
@@ -136,7 +160,8 @@ export default function GetStarted() {
           <div>
             <p className="font-medium">You're set up.</p>
             <p className="text-sm text-muted-foreground">
-              {status?.agent?.gpus[0]?.name ?? choices.device?.name} · {task?.name} · verified human
+              {status?.agent?.gpus[0]?.name ?? choices.device?.name} · {task?.name} ·{" "}
+              {status?.seat ? "verified human" : `stakes ${SUI.stakeSui} SUI per submission`}
             </p>
           </div>
           <Button asChild className="rounded-full px-5">
