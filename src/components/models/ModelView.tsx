@@ -21,6 +21,13 @@ declare module "react" {
   }
 }
 
+// Each orb is a workload; its colour is the verdict on the best kernel submitted for it.
+const LEGEND: [status: "verified" | "verifying" | "rejected", title: string, meaning: string][] = [
+  ["verified", "Verified", "Verifiers re-ran it: same output, clearly faster. On the ranking, can be licensed."],
+  ["verifying", "Pending", "No verdict yet: no kernel submitted, or verifiers are still re-running it."],
+  ["rejected", "Rejected", "Tested, but not proven faster (or a different output). Off the ranking."],
+];
+
 /** Kernels verified on this platform for the model, polled like the rest of the app. */
 function useRealRows(modelId: string) {
   const [rows, setRows] = React.useState<KernelRow[]>([]);
@@ -169,14 +176,18 @@ export default function ModelView({ model, initialWorkload }: { model: Model; in
                 {verifiedCount} of {WORKLOADS.length} workloads verified
               </dd>
             </dl>
-            <div className="flex gap-4.5 text-[11px] tracking-[0.08em] text-muted-foreground uppercase">
-              {(["verified", "verifying", "rejected"] as const).map((s) => (
-                <span key={s} className="inline-flex items-center gap-1.5">
-                  <span className="size-2 rounded-full" style={{ background: STATUS[s][0] }} />
-                  {s === "verifying" ? "Pending" : STATUS[s][1]}
-                </span>
+            {/* What each orb colour means, in plain words. */}
+            <dl className="pointer-events-auto m-0 flex flex-col gap-1.5 rounded-lg border border-border/60 bg-card/60 p-3 text-xs backdrop-blur-sm">
+              {LEGEND.map(([status, title, meaning]) => (
+                <div key={status} className="flex items-baseline gap-2">
+                  <dt className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                    <span className="size-2 rounded-full" style={{ background: STATUS[status][0] }} />
+                    <span className="text-[11px] tracking-[0.08em] uppercase" style={{ color: STATUS[status][0] }}>{title}</span>
+                  </dt>
+                  <dd className="m-0 text-muted-foreground">{meaning}</dd>
+                </div>
               ))}
-            </div>
+            </dl>
           </div>
         </div>
 
