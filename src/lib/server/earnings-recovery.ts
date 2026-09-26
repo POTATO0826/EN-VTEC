@@ -94,7 +94,7 @@ export function startEarningsRequest(input: {
       identity: account.identity,
       address: destination,
       signal,
-      message: `VTEC enroll earnings recovery\nWallet: ${destination}\nRequest: ${id}\nSignal: ${signal}`,
+      message: `Opti-om enroll earnings recovery\nWallet: ${destination}\nRequest: ${id}\nSignal: ${signal}`,
       rp,
       expiresAt: rp.expires_at * 1000,
       worldSessionId: account.worldSessionId,

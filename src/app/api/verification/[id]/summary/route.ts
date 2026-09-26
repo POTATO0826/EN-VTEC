@@ -5,6 +5,7 @@ import path from "node:path";
 import { complete, LlmError } from "@/lib/server/llm";
 import { load } from "@/lib/server/store";
 import { verificationStory, type VerificationStory } from "@/lib/server/verification-story";
+import { DATA_DIR, dataPath } from "@/lib/server/data-dir";
 
 /**
  * An agent's analysis of how a submission was verified: how it was tuned,
@@ -13,7 +14,7 @@ import { verificationStory, type VerificationStory } from "@/lib/server/verifica
  * not by the model. Cached per state of the record (?refresh=1 forces a new one).
  */
 
-const CACHE = path.join(process.cwd(), ".data", "summaries.json");
+const CACHE = dataPath("summaries.json");
 /** Bump when the prompt or the sections change, so old analyses are rewritten. */
 const PROMPT_VERSION = "v3";
 

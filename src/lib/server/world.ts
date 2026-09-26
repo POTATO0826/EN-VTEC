@@ -2,15 +2,18 @@ import "server-only";
 import type { IDKitResult } from "@worldcoin/idkit";
 import { hashSignal } from "@worldcoin/idkit-core/hashing";
 import { signRequest } from "@worldcoin/idkit-core/signing";
+import { PROOF_VERSION } from "@/lib/selfie-check/config";
+import { isSelfieIdentifier } from "@/lib/selfie-check/types";
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { DATA_DIR, dataPath } from "@/lib/server/data-dir";
 
 /** Why World refused a proof, kept in .data/world.log for debugging. */
 export function logWorld(where: string, detail: unknown) {
   try {
-    mkdirSync(path.join(process.cwd(), ".data"), { recursive: true });
+    mkdirSync(DATA_DIR, { recursive: true });
     appendFileSync(
-      path.join(process.cwd(), ".data", "world.log"),
+      dataPath("world.log"),
       `${new Date().toISOString()} ${where} ${JSON.stringify(detail)}
 `,
     );
@@ -76,9 +79,10 @@ export type Verdict =
   | { ok: false; status: number; error: string; code?: string; detail?: string };
 
 /**
- * Checks a proof end to end: it must be for `action`, its signal must be
- * `signal`, and World's Developer Portal must accept it. Only the portal's
- * answer is trusted, never anything the client claims.
+ * Checks a proof end to end, the lib/selfie-check way: World ID 3.0 only, a
+ * Selfie Check credential, for `action`, its signal must be `signal`, and
+ * World's Developer Portal must accept the Selfie Check result itself (a
+ * partial success is still HTTP 200). Only the portal's answer is trusted.
  */
 export async function verifyProof(
   proof: IDKitResult,
@@ -87,6 +91,13 @@ export async function verifyProof(
 ): Promise<Verdict> {
   if (!("action" in proof) || proof.action !== action) {
     return { ok: false, status: 400, error: "wrong_action" };
+  }
+  // The preset and allow_legacy_proofs aren't signed, so assert them here.
+  if (proof.protocol_version !== PROOF_VERSION) {
+    return { ok: false, status: 400, error: "wrong_protocol_version", detail: `Expected World ID ${PROOF_VERSION}.` };
+  }
+  if (!proof.responses.some((r) => isSelfieIdentifier(r.identifier))) {
+    return { ok: false, status: 400, error: "wrong_credential", detail: "The proof carried no Selfie Check credential." };
   }
 
   const expected = hashSignal(signal);
@@ -112,7 +123,12 @@ export async function verifyProof(
     action?: string;
     code?: string;
     detail?: string;
+    results?: { identifier: string; success: boolean; code?: string; detail?: string }[];
   };
+  const selfie = verdict.results?.find((r) => isSelfieIdentifier(r.identifier));
+  if (selfie && selfie.success !== true) {
+    return { ok: false, status: 400, error: "verification_failed", code: selfie.code, detail: selfie.detail };
+  }
 
   if (!res.ok || !verdict.success || !verdict.nullifier) {
     return {

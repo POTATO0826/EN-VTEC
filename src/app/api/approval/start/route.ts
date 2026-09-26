@@ -42,6 +42,6 @@ export async function POST(request: Request) {
 
   return Response.json({
     approvalId: id,
-    ...signedRequest(action, `Let my VTEC agent submit one build to ${track.name}`),
+    ...signedRequest(action, `Let my Opti-om agent submit one build to ${track.name}`),
   });
 }

@@ -73,7 +73,7 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
     setBusy("download");
     const id = toast.loading("Sign the download request in Slush…");
     try {
-      const message = `VTEC download ${row.id} at ${Date.now()}`;
+      const message = `Opti-om download ${row.id} at ${Date.now()}`;
       const { signature } = await dAppKit.signPersonalMessage({ message: new TextEncoder().encode(message) });
       toast.loading("Checking your License on Sui…", { id });
       const res = await postJson("/api/license/download", {
@@ -125,7 +125,7 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
               ) : (
                 <>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    One transaction: you pay {SUI.licenseSui} SUI, it&apos;s split 70% tuner · 20% lineage · 10% VTEC, and
+                    One transaction: you pay {SUI.licenseSui} SUI, it&apos;s split 70% tuner · 20% lineage · 10% Opti-om, and
                     a License object is minted to your wallet.
                   </p>
                   <Button onClick={buy} disabled={!!busy} className="mt-3 rounded-full px-5">
@@ -140,7 +140,7 @@ export default function GetKernelDialog({ row, onClose }: { row: Purchasable | n
                 <DownloadIcon className="size-4" /> 2. Download
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                Sign a message with Slush. VTEC checks the signature and that this wallet owns the License, then gives you
+                Sign a message with Slush. Opti-om checks the signature and that this wallet owns the License, then gives you
                 a link that works once.
               </p>
               <Button

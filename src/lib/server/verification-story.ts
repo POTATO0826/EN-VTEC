@@ -5,6 +5,7 @@ import { findTrack } from "@/lib/catalog";
 import { PLATFORM_SESSION, harnessRunning } from "./harness";
 import type { load, Submission, VerifyReport } from "./store";
 import { QUORUM } from "./verification";
+import { DATA_DIR, dataPath } from "@/lib/server/data-dir";
 
 type Data = Awaited<ReturnType<typeof load>>;
 
@@ -51,7 +52,7 @@ export type VerificationStory = {
   tolerance: number;
 };
 
-const LOG = path.join(process.cwd(), ".data", "harness.log");
+const LOG = dataPath("harness.log");
 
 /** The platform harness's printed lines for a submission: its latest block in the log. */
 function harnessLines(submissionId: string): string[] | null {

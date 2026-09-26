@@ -13,7 +13,7 @@ export const dAppKit = createDAppKit({
   createClient: (network) => new SuiGrpcClient({ network, baseUrl: `https://fullnode.${network}.sui.io:443` }),
   // The Slush browser extension registers itself. The Slush web wallet needs
   // a deployed https origin, so it's only switched on in production builds.
-  slushWalletConfig: process.env.NODE_ENV === "production" ? { appName: "VTEC" } : null,
+  slushWalletConfig: process.env.NODE_ENV === "production" ? { appName: "Opti-om" } : null,
 });
 
 declare module "@mysten/dapp-kit-react" {

@@ -1,0 +1,341 @@
+import { NextResponse } from "next/server";
+import { hashSignal } from "@worldcoin/idkit/hashing";
+
+import {
+  ConfigError,
+  environmentAsymmetry,
+  requireConfig,
+} from "@/lib/selfie-check/config";
+import {
+  credentialExpiresAt,
+  evaluate,
+  findAction,
+  proofAgeSeconds,
+} from "@/lib/selfie-check/policy";
+import { accountCookie, resolveAccountId } from "@/lib/selfie-check/session";
+import {
+  type AccountRecord,
+  getAccount,
+  pushEvent,
+  saveAccount,
+  shortNullifier,
+  toSnapshot,
+} from "@/lib/selfie-check/store";
+import {
+  SELFIE_IDENTIFIER,
+  isSelfieIdentifier,
+  normalizeV3,
+  type IDKitResultV3,
+  type NormalizedCredential,
+  type ResponseItemV3,
+} from "@/lib/selfie-check/types";
+import { clampMaxAge, verifySelfieProof } from "@/lib/selfie-check/verify";
+
+type Body = {
+  /** Which gated action the user is trying to reach. */
+  intent?: string;
+  /** The raw IDKit result forwarded from the widget. Must be World ID 4.0. */
+  result?: IDKitResultV3;
+};
+
+export async function POST(request: Request) {
+  let config;
+  try {
+    config = requireConfig();
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      return NextResponse.json(
+        { ok: false, errorCode: "not_configured", problems: error.problems },
+        { status: 503 },
+      );
+    }
+    throw error;
+  }
+
+  const { id, isNew } = await resolveAccountId();
+  const record = getAccount(id);
+  const body = (await request.json().catch(() => ({}))) as Body;
+
+  const intent = body.intent ? findAction(body.intent) : undefined;
+  const maxAge = clampMaxAge(intent?.maxAgeSeconds ?? null);
+
+  if (!body.result) {
+    return NextResponse.json(
+      {
+        ok: false,
+        errorCode: "missing_result",
+        detail:
+          "No IDKit result in the request. A proof must come from World App — there is no local proof engine.",
+      },
+      { status: 400 },
+    );
+  }
+
+  const rawResult = body.result;
+
+  // ---- Gate 1: protocol version.
+  //
+  // The rp_context signature covers only
+  // version || nonce || created_at || expires_at || hash_to_field(action).
+  // `allow_legacy_proofs`, the preset and the constraint tree are UNSIGNED and
+  // chosen by the client, so a caller holding a legitimately minted context can
+  // re-run the request as `selfieCheckLegacy()` and return a genuine 3.0 proof
+  // for the same action.
+  //
+  // That matters because the 3.0 and 4.0 nullifiers for one human are different
+  // values, unlinkable by design. Accepting both for a single action would let
+  // one human hold two anchors — enroll on 4.0, then present 3.0 and read as a
+  // different human. Every decision downstream compares nullifiers, so
+  // accepting both versions breaks the comparison it depends on.
+  if (rawResult.protocol_version !== config.proofVersion) {
+    return fail(
+      record,
+      id,
+      isNew,
+      "wrong_protocol_version",
+      `This app accepts World ID ${config.proofVersion} only, got ${String(
+        (rawResult as { protocol_version?: unknown }).protocol_version,
+      )}. The other version's nullifier is a different, unlinkable value, so accepting both would allow two identities per human.`,
+    );
+  }
+
+  // ---- Gate 2: the credential itself.
+  //
+  // Also unsigned, so it is asserted here rather than assumed from what the
+  // widget was configured to request.
+  const found = rawResult.responses?.find((r: ResponseItemV3) =>
+    isSelfieIdentifier(r.identifier),
+  );
+  if (!found) {
+    const seen = (rawResult.responses ?? [])
+      .map((r: ResponseItemV3) => r.identifier)
+      .join(", ");
+    return fail(
+      record,
+      id,
+      isNew,
+      "wrong_credential",
+      `Result carried no "${SELFIE_IDENTIFIER}" credential${seen ? ` (got: ${seen})` : ""}.`,
+    );
+  }
+
+  const item = found;
+
+  // ---- Gate 3 does not exist on 3.0, and that is worth stating rather than
+  // silently skipping.
+  //
+  // A 4.0 response carries `issuer_schema_id` (11 for Selfie Check), which is
+  // the only field that proves WHICH credential produced a proof. A 3.0
+  // response has no numeric field at all, so the identifier string checked
+  // above is the sole credential evidence — and the action string is what
+  // scopes the nullifier. That is the concrete assurance cost of 3.0 being the
+  // only issuable version, and why WORLD_ACTION must never be rotated.
+
+  // ---- Gate 4: the signal binds the proof to this account.
+  //
+  // World App hashes the signal with hash_to_field, so re-derive it the same
+  // way. sha256(id) would never match.
+  const signalHash = hashSignal(id);
+  if (!item.signal_hash) {
+    return fail(
+      record,
+      id,
+      isNew,
+      "missing_signal",
+      "Proof carried no signal_hash, so it cannot be bound to this account.",
+    );
+  }
+  if (item.signal_hash !== signalHash) {
+    return fail(
+      record,
+      id,
+      isNew,
+      "invalid_signal",
+      "Proof signal_hash does not bind to this account — refusing a cross-account replay.",
+    );
+  }
+
+  const cred: NormalizedCredential = normalizeV3(item);
+
+  // ---- Gate 5: nonce replay. In production this is a UNIQUE constraint; the
+  // nonce check is what stops a captured rp_context from being reused.
+  if (rawResult.nonce && record.usedNonces.includes(rawResult.nonce)) {
+    return fail(
+      record,
+      id,
+      isNew,
+      "duplicate_nonce",
+      "This rp_context nonce was already spent.",
+    );
+  }
+
+  // ---- Gate 6: the Developer Portal verifies the proof. Nothing above this
+  // line proves the proof is cryptographically valid.
+  const verifyAttempt = await verifySelfieProof({
+    config,
+    item,
+    action: config.action,
+    nonce: rawResult.nonce,
+    maxAgeSeconds: maxAge,
+  });
+  if (!verifyAttempt.ok) {
+    return fail(
+      record,
+      id,
+      isNew,
+      verifyAttempt.code ?? "verification_failed",
+      verifyAttempt.guidance ?? "Verify endpoint rejected the proof.",
+      verifyAttempt,
+    );
+  }
+
+  // ---- Proof accepted. Update the anchor / continuity state.
+  // When WE verified, which is what the freshness tiers measure.
+  //
+  // Do NOT use the portal's `created_at` for this. Measured on a real
+  // re-verification: a fresh proof (new nonce, accepted, HTTP 200) came back
+  // with the SAME `created_at` as a verification two hours earlier — so that
+  // field tracks the credential/nullifier, not this verify call. Using it made
+  // a just-completed check read as 2h old and denied the 1h-window tiers.
+  // The proof's own age is enforced separately by `max_age` on the request.
+  const verifiedAt = Date.now();
+  const portalCreatedAt = portalTimestamp(verifyAttempt);
+  const nullifier = item.nullifier;
+  const previousAnchor = record.anchorNullifier;
+  let continuityEvent:
+    | "anchor_created"
+    | "continuity_confirmed"
+    | "continuity_broken";
+
+  if (previousAnchor == null) {
+    record.anchorNullifier = nullifier;
+    record.anchoredAt = verifiedAt;
+    continuityEvent = "anchor_created";
+  } else if (nullifier === previousAnchor) {
+    continuityEvent = "continuity_confirmed";
+  } else {
+    continuityEvent = "continuity_broken";
+    record.continuityBreaks += 1;
+  }
+
+  record.lastNullifier = nullifier;
+  record.lastVerifiedAt = verifiedAt;
+  // The 90-day figure is an INACTIVITY window, not an absolute expiry: "After
+  // 90 days without use, the user completes the camera flow again." So it
+  // resets on every successful use rather than counting from first issuance.
+  record.credentialIssuedAt = verifiedAt;
+  if (!record.seenNullifiers.includes(nullifier)) {
+    record.seenNullifiers.push(nullifier);
+  }
+  if (rawResult.nonce) record.usedNonces.push(rawResult.nonce);
+
+  const summaries: Record<typeof continuityEvent, string> = {
+    anchor_created: `Human anchor established — ${shortNullifier(nullifier)}`,
+    continuity_confirmed: "Continuity confirmed — same nullifier as anchor",
+    continuity_broken: `Continuity BREAK — ${shortNullifier(nullifier)} ≠ anchor ${shortNullifier(previousAnchor)}`,
+  };
+
+  pushEvent(record, {
+    at: Date.now(),
+    kind: continuityEvent,
+    summary: summaries[continuityEvent],
+    detail: `live proof · HTTP ${verifyAttempt.status} · ${verifyAttempt.target} · protocol ${config.proofVersion}${
+      cred.issuerSchemaId != null ? ` · schema ${cred.issuerSchemaId}` : ""
+    }`,
+    source: "live",
+    verifyStatus: verifyAttempt.status,
+  });
+  saveAccount(record);
+
+  const snapshot = toSnapshot(record);
+  const now = Date.now();
+
+  const res = NextResponse.json({
+    ok: true,
+    source: "live" as const,
+    continuityEvent,
+    credential: {
+      identifier: cred.identifier,
+      nullifier,
+      nullifierShort: shortNullifier(nullifier),
+      merkle_root: cred.merkleRoot,
+      signal_hash: cred.signalHash,
+      issuer_schema_id: cred.issuerSchemaId,
+      expires_at_min: cred.expiresAtMin,
+      proofPreview: cred.proofPreview,
+      protocol_version: rawResult.protocol_version,
+      environment: rawResult.environment,
+    },
+    verify: {
+      status: verifyAttempt.status,
+      portalCreatedAt,
+      target: verifyAttempt.target,
+      url: verifyAttempt.url,
+      request: verifyAttempt.request,
+      response: verifyAttempt.response,
+      environmentNote: environmentAsymmetry(config),
+    },
+    account: {
+      continuity: snapshot.continuity,
+      continuityBreaks: record.continuityBreaks,
+      anchorShort: shortNullifier(snapshot.anchorNullifier),
+      lastShort: shortNullifier(snapshot.lastNullifier),
+      proofAgeSeconds: proofAgeSeconds(snapshot, now),
+      credentialExpiresAt: credentialExpiresAt(snapshot),
+    },
+    decision: intent ? evaluate(intent, snapshot, now) : null,
+  });
+  if (isNew) res.cookies.set(accountCookie(id));
+  return res;
+}
+
+/**
+ * Prefer the portal's own `created_at` over local time. It is the only
+ * timestamp neither this server nor the client can influence, and proof
+ * freshness decisions are made against it.
+ */
+function portalTimestamp(attempt: {
+  response: unknown;
+}): number | null {
+  const created = (attempt.response as { created_at?: unknown })?.created_at;
+  if (typeof created !== "string") return null;
+  const ms = Date.parse(created);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Record a failed verification and return it in the shape the UI expects. */
+function fail(
+  record: AccountRecord,
+  id: string,
+  isNew: boolean,
+  code: string,
+  detail: string,
+  verifyAttempt?: Awaited<ReturnType<typeof verifySelfieProof>>,
+) {
+  pushEvent(record, {
+    at: Date.now(),
+    kind: "verification_failed",
+    summary: `Verification failed — ${code}`,
+    detail,
+    source: "live",
+    verifyStatus: verifyAttempt?.status ?? null,
+  });
+  saveAccount(record);
+
+  const res = NextResponse.json({
+    ok: false,
+    errorCode: code,
+    detail,
+    verify: verifyAttempt
+      ? {
+          status: verifyAttempt.status,
+          target: verifyAttempt.target,
+          url: verifyAttempt.url,
+          request: verifyAttempt.request,
+          response: verifyAttempt.response,
+        }
+      : null,
+  });
+  if (isNew) res.cookies.set(accountCookie(id));
+  return res;
+}

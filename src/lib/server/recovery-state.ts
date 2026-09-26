@@ -2,6 +2,7 @@ import "server-only";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { RpContext } from "@worldcoin/idkit";
+import { DATA_DIR, dataPath } from "@/lib/server/data-dir";
 
 export type RoyaltyAccount = {
   identity: string;
@@ -31,7 +32,7 @@ export type RecoveryState = {
   requests: RecoveryRequest[];
   usedStamps: string[];
 };
-const FILE = path.join(process.cwd(), ".data", "recovery.json");
+const FILE = dataPath("recovery.json");
 
 export async function readRecovery(): Promise<RecoveryState> {
   try {

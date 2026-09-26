@@ -282,8 +282,8 @@ export default function EarningsRecovery() {
           existing_session_id={request.existing_session_id}
           action_description={
             request.kind === "enroll"
-              ? "Protect VTEC earnings"
-              : `Recover VTEC earnings to ${request.address}`
+              ? "Protect Opti-om earnings"
+              : `Recover Opti-om earnings to ${request.address}`
           }
           constraints={CredentialRequest("selfie", { signal: request.signal })}
           handleVerify={verify}
