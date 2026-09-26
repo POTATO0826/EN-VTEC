@@ -1,10 +1,21 @@
 import { createHash } from "node:crypto";
 import { findTrack } from "@/lib/catalog";
-import { saveBuild, update, type BuildRequirements } from "@/lib/server/store";
+import { saveBuild, update, type BuildRequirements, type Claim } from "@/lib/server/store";
 import { assignPending } from "@/lib/server/verification";
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const MAX_BUNDLE_BYTES = 5 * 1024 * 1024;
+
+const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+
+/** The tuner's speedup claim, checked for shape so a client can't store junk in it. */
+function claimOf(v: unknown): Claim | null {
+  const c = v as Partial<Claim> | null;
+  if (!c || typeof c !== "object" || !num(c.speedup) || c.speedup! <= 0 || c.speedup! > 1000) return null;
+  const noisePct = num(c.noisePct) ? Math.min(Math.max(c.noisePct!, 0), 100) : 0;
+  const runs = num(c.runs) ? Math.min(Math.max(Math.round(c.runs!), 1), 100) : 1;
+  return { speedup: c.speedup!, noisePct, runs, gpu: String(c.gpu ?? "").slice(0, 120) };
+}
 
 /** Recomputes the build hash exactly the way the agent does. */
 function hashFiles(files: Record<string, string>) {
@@ -32,6 +43,8 @@ export async function POST(request: Request) {
     files?: Record<string, string>;
     /** What the agent printed while tuning and submitting. */
     log?: unknown;
+    /** The tuner's speedup claim, for verifiers to meet. */
+    claim?: unknown;
   } | null;
 
   const track = body?.trackId ? findTrack(body.trackId) : null;
@@ -92,6 +105,7 @@ export async function POST(request: Request) {
       requires: body.requires ?? {},
       // Shown on the verification page; bounded so a client can't store a novel.
       tuneLog: Array.isArray(body.log) ? body.log.slice(0, 60).map((l) => String(l).slice(0, 200)) : undefined,
+      claim: claimOf(body.claim),
       status: "pending",
       draw: null,
       speedup: null,

@@ -85,6 +85,8 @@ export type Submission = {
   harness?: boolean;
   /** Where the process fee went once verification ended. */
   feeSettlement?: { digest: string; recipients: string[] } | null;
+  /** The tuner's speedup claim, which verifiers must meet. */
+  claim?: Claim | null;
   /** What the tuner's agent printed while building and submitting it: the auto-tune run, hashes, timing. */
   tuneLog?: string[];
   /** On sale once verified: the shared Listing on Sui. */
@@ -99,6 +101,18 @@ export type Verifier = {
   sessionId: string;
   joinedAt: string;
   reputation: number;
+};
+
+/**
+ * What the tuner claims: how much faster than the baseline, measured the way
+ * verifiers measure. Verifiers must measure at least this (give or take noise).
+ */
+export type Claim = {
+  speedup: number;
+  /** Run-to-run noise of the tuner's baseline runs, in %. */
+  noisePct: number;
+  runs: number;
+  gpu: string;
 };
 
 export type VerifyReport = {
@@ -122,6 +136,8 @@ export type VerifyReport = {
   /** Largest |candidate − baseline| over every run's output; null when the track has no tensor check. */
   maxError?: number | null;
   tolerance?: number;
+  /** Did this verifier measure at least the tuner's claim (less noise)? null: no claim (older submission). */
+  claimCheck?: { ok: boolean; claimedSpeedup: number; required: number; tunerGpu: string } | null;
 };
 
 export type Assignment = {

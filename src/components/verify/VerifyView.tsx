@@ -81,13 +81,13 @@ export default function VerifyView() {
     <>
       <PageTitle
         title="Verify"
-        subtitle="Nothing reaches the Kernel Code Efficiency Ranking until independent, real people re-run it on their own hardware."
+        subtitle="Nothing reaches the Kernel Code Efficiency Ranking until a verifier re-runs the exact code on a real GPU and gets the tuner's result, faster than the baseline."
       />
 
       {me && me.harness.jobs.length > 0 ? (
         <section className="mb-8 flex flex-col gap-3">
           <h2 className="flex items-center gap-2 text-sm tracking-[0.18em] text-muted-foreground uppercase">
-            Platform harness
+            Opti-om verifier
             {me.harness.running ? (
               <span className="inline-flex items-center gap-1.5 text-[11px] tracking-normal text-[var(--warning)] normal-case">
                 <span className="size-1.5 animate-pulse rounded-full bg-[var(--warning)]" /> running now
@@ -95,8 +95,9 @@ export default function VerifyView() {
             ) : null}
           </h2>
           <p className="text-sm text-muted-foreground">
-            While the pool is small, the platform runs the same verifier agent on its own machine. Open a job to see
-            how it was verified: every run, the pass rule and the on-chain receipts.
+            Verifiers are people running the Opti-om agent on their own GPU. Until enough of them have joined, Opti-om
+            runs that same agent on its own GPU as a verifier, with the same checks, and each job says who verified it.
+            Open a job to see every run, the pass rule and the on-chain receipts.
           </p>
           <div className="overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
             {me.harness.jobs.map((job) => (
