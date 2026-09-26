@@ -3,7 +3,7 @@ import { load, update } from "@/lib/server/store";
 import { missingIdkitEnv, signedRequest } from "@/lib/server/world";
 
 // Permission for one agent submission: first a World ID approval (a real
-// person says yes to this one submission), then the 0.5 SUI process fee.
+// person says yes to this one submission), then the process fee.
 export async function POST(request: Request) {
   const missing = missingIdkitEnv();
   if (missing.length > 0) {

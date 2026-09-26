@@ -14,7 +14,7 @@ const ADMIN: address = @0xA;
 const TUNER: address = @0xB;
 const BUYER: address = @0xF;
 const ONE_SUI: u64 = 1_000_000_000;
-const HALF_SUI: u64 = 500_000_000;
+const FEE: u64 = 10_000_000; // 0.01 SUI
 
 fun setup(): Scenario {
     let mut s = ts::begin(ADMIN);
@@ -77,7 +77,7 @@ fun pay_fee_as_tuner(s: &mut Scenario, key: vector<u8>, amount: u64) {
 fun fee_is_split_between_verifiers() {
     let mut s = setup();
     verify_human(&mut s, TUNER, b"null-1");
-    pay_fee_as_tuner(&mut s, b"ap-1", HALF_SUI);
+    pay_fee_as_tuner(&mut s, b"ap-1", FEE);
 
     s.next_tx(ADMIN);
     let cap = s.take_from_sender<AdminCap>();
@@ -87,9 +87,9 @@ fun fee_is_split_between_verifiers() {
     ts::return_shared(v);
     s.return_to_sender(cap);
 
-    // 500_000_000 / 3 = 166_666_666 each; the first recipient takes the remainder.
-    assert!(take_coin(&mut s, @0xD) == 166_666_666);
-    assert!(take_coin(&mut s, @0xC) == 166_666_668);
+    // 10_000_000 / 3 = 3_333_333 each; the first recipient takes the remainder.
+    assert!(take_coin(&mut s, @0xD) == 3_333_333);
+    assert!(take_coin(&mut s, @0xC) == 3_333_334);
     s.end();
 }
 
@@ -105,8 +105,8 @@ fun wrong_fee_is_rejected() {
 fun fee_cannot_be_paid_twice() {
     let mut s = setup();
     verify_human(&mut s, TUNER, b"null-1");
-    pay_fee_as_tuner(&mut s, b"ap-1", HALF_SUI);
-    pay_fee_as_tuner(&mut s, b"ap-1", HALF_SUI);
+    pay_fee_as_tuner(&mut s, b"ap-1", FEE);
+    pay_fee_as_tuner(&mut s, b"ap-1", FEE);
     s.end();
 }
 
@@ -114,7 +114,7 @@ fun fee_cannot_be_paid_twice() {
 fun fee_refund_returns_to_payer() {
     let mut s = setup();
     verify_human(&mut s, TUNER, b"null-1");
-    pay_fee_as_tuner(&mut s, b"ap-1", HALF_SUI);
+    pay_fee_as_tuner(&mut s, b"ap-1", FEE);
 
     s.next_tx(ADMIN);
     let cap = s.take_from_sender<AdminCap>();
@@ -123,7 +123,7 @@ fun fee_refund_returns_to_payer() {
     ts::return_shared(v);
     s.return_to_sender(cap);
 
-    assert!(take_coin(&mut s, TUNER) == HALF_SUI);
+    assert!(take_coin(&mut s, TUNER) == FEE);
     s.end();
 }
 

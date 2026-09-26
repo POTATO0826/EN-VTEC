@@ -96,7 +96,7 @@ export default function TrackView({ track }: { track: Track }) {
   const approved = !!data?.approval;
   const paid = data?.approval?.stage === "ready";
 
-  // Agent -> World ID approval -> 0.5 SUI process fee -> run.
+  // Agent -> World ID approval -> process fee -> run.
   const state = (n: 1 | 2 | 3 | 4): StepState => {
     const done = [hasAgent && verified, approved, paid, false];
     const first = done.indexOf(false) + 1;
@@ -387,20 +387,20 @@ function BuildPicker({
   builds: { folder: string; name: string }[];
   code: string;
 }) {
-  const [folder, setFolder] = React.useState<string | null>(null);
-  const chosen = folder ?? builds[0]?.folder ?? "";
+  // "" = let the agent auto-tune a kernel for this GPU (the default).
+  const [chosen, setChosen] = React.useState("");
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        Pick the build to submit. It&apos;s timed against the generic baseline on random inputs, so only a genuinely
-        faster, correct kernel passes.
+        Let your agent tune a kernel for your GPU (it tries random variants, keeps the fastest correct one), or pick a
+        build. Either way it&apos;s re-timed against the generic baseline on random inputs by verifiers.
       </p>
       <div className="flex flex-wrap gap-2">
-        {builds.map((b) => (
+        {[{ folder: "", name: "Auto-tune on my GPU (recommended)" }, ...builds].map((b) => (
           <button
             key={b.folder}
             type="button"
-            onClick={() => setFolder(b.folder)}
+            onClick={() => setChosen(b.folder)}
             className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
               chosen === b.folder ? "border-primary bg-accent/60" : "border-border/70 text-muted-foreground hover:bg-accent/40"
             }`}
@@ -410,7 +410,8 @@ function BuildPicker({
         ))}
       </div>
       <CommandBlock>
-        bun agent/vtec-agent.ts submit {code} --track {trackId} --build tracks/{trackId}/{chosen}
+        bun agent/vtec-agent.ts submit {code} --track {trackId}
+        {chosen ? ` --build tracks/${trackId}/${chosen}` : ""}
       </CommandBlock>
       <p className="text-xs text-muted-foreground">
         Your own kernel: put it in a folder with a vtec.json (copy the tuned one) and pass that folder to --build.

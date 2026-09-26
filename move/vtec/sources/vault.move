@@ -80,7 +80,7 @@ fun init(ctx: &mut TxContext) {
         stake_amount: 1_000_000_000,
         stakes: table::new(ctx),
         rewards: balance::zero(),
-        fee_amount: 500_000_000,
+        fee_amount: 10_000_000,
         fees: table::new(ctx),
     });
 }

@@ -101,7 +101,7 @@ export async function POST(request: Request) {
       outcome.error === "not_approved"
         ? "Approve this submission with World ID on the track page first."
         : outcome.error === "fee_unpaid"
-          ? "Pay the 0.5 SUI process fee on the track page first."
+          ? "Pay the process fee on the track page first."
           : "Pair this agent from the Get started page first.";
     return Response.json({ error: outcome.error, detail }, { status: outcome.error === "unknown_code" ? 404 : 403 });
   }

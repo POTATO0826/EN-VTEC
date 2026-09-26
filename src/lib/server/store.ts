@@ -37,7 +37,7 @@ export type Approval = {
   action: string;
   status: "pending" | "approved";
   nullifier: string | null;
-  /** The 0.5 SUI process fee, paid after the World ID approval. */
+  /** The process fee, paid after the World ID approval. */
   fee: { digest: string; payer: string; amountMist: string } | null;
   at: string;
 };

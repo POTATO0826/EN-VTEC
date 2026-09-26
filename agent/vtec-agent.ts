@@ -6,7 +6,10 @@
  *       Reads this machine's GPU/CPU and pairs with the browser session that
  *       showed <CODE> on the Get started page.
  *
- *   bun agent/vtec-agent.ts submit <CODE> --track <id> --build <dir> [--run "<command>"]
+ *   bun agent/vtec-agent.ts submit <CODE> --track <id> [--build <dir>] [--run "<command>"]
+ *       Without --build the agent tunes a kernel for this GPU itself (random
+ *       variants from the track's template, checked and timed here) and
+ *       submits the fastest correct one.
  *       Hashes the build (SHA-256), runs it, hashes its output and uploads the
  *       exact files. The submission starts as PENDING until verifiers agree.
  *       --run defaults to the "run" command in the build's vtec.json. The
@@ -188,12 +191,96 @@ function runOnce(dir: string, run: string, seed = "0", out?: string) {
   return { ms, sha256: createHash("sha256").update(result.stdout).digest("hex") };
 }
 
-type TrackConfig = { output?: string; compare?: "tensor"; tolerance?: number };
+type TuneConfig = {
+  template: string;
+  file: string;
+  requires?: Requirements;
+  params: Record<string, (string | number)[]>;
+  /** name -> expression over the params, e.g. "1024 / THREADS" */
+  derived?: Record<string, string>;
+  samples?: number;
+};
+type TrackConfig = { output?: string; compare?: "tensor"; tolerance?: number; tune?: TuneConfig };
 
 /** tracks/<id>/track.json: what a build writes and how outputs are compared. */
 function trackConfig(trackId: string): TrackConfig {
   const file = path.join(REPO, "tracks", trackId, "track.json");
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as TrackConfig) : {};
+}
+
+/** Every combination of the tune parameters, e.g. THREADS x LOAD. */
+function combinations(params: Record<string, (string | number)[]>) {
+  let out: Record<string, string | number>[] = [{}];
+  for (const [key, values] of Object.entries(params)) {
+    out = out.flatMap((combo) => values.map((v) => ({ ...combo, [key]: v })));
+  }
+  return out;
+}
+
+/**
+ * The agent's own optimisation loop, on this GPU: generate kernel variants
+ * from the track's template (a random sample of the parameter space), check
+ * each one's output against the baseline on a random seed, time it, and keep
+ * the fastest correct one. Different runs explore different variants, so each
+ * submission is new code.
+ */
+function autotune(track: string, tune: TuneConfig) {
+  const trackDir = path.join(REPO, "tracks", track);
+  const template = readFileSync(path.join(trackDir, tune.template), "utf8");
+  const cfg = trackConfig(track);
+  const ext = path.extname(cfg.output ?? "out.bin");
+
+  const all = combinations(tune.params).sort(() => Math.random() - 0.5);
+  const picked = all.slice(0, Math.min(tune.samples ?? 4, all.length));
+  const seed = String(randomBytes(2).readUInt16BE() % 1000);
+
+  mkdirSync(path.join(REPO, ".vtec-runs"), { recursive: true });
+  const work = mkdtempSync(path.join(REPO, ".vtec-runs", `tune-${track}-`));
+  console.log(
+    `• tuning ${track} on ${detectGpus()[0]?.name ?? "this machine"}: ${picked.length} of ${all.length} variants, seed ${seed}`,
+  );
+
+  const baseline = path.join(trackDir, "baseline");
+  const baseOut = path.join(work, `baseline${ext}`);
+  const base = runOnce(baseline, manifestOf(baseline).run!, seed, baseOut);
+  console.log(`  ${"baseline".padEnd(28)} ${(base.ms / 1000).toFixed(2)} s`);
+
+  let best: { dir: string; ms: number; label: string } | null = null;
+  picked.forEach((combo, i) => {
+    const values: Record<string, string | number> = { ...combo };
+    for (const [name, expr] of Object.entries(tune.derived ?? {})) {
+      // Expressions come from the repo's own track.json, not from the network.
+      values[name] = new Function(...Object.keys(values), `return (${expr});`)(...Object.values(values));
+    }
+    let code = template;
+    for (const [key, value] of Object.entries(values)) code = code.replaceAll(`{{${key}}}`, String(value));
+
+    const label = Object.entries(combo)
+      .map(([k, v]) => `${k.toLowerCase()}=${v}`)
+      .join(" ");
+    const dir = path.join(work, `variant-${i + 1}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, tune.file), code);
+    writeFileSync(
+      path.join(dir, "vtec.json"),
+      JSON.stringify({ name: `auto-tuned (${label})`, run: `{python} ${tune.file}`, requires: tune.requires ?? {} }, null, 2),
+    );
+
+    const out = path.join(dir, `out${ext}`);
+    const run = runOnce(dir, `{python} ${tune.file}`, seed, out);
+    const correct = sameTensor(baseOut, out, cfg.tolerance ?? 1e-3);
+    rmSync(out, { force: true });
+    console.log(
+      `  ${label.padEnd(28)} ${(run.ms / 1000).toFixed(2)} s  ${(base.ms / run.ms).toFixed(2)}×  ${correct ? "correct" : "WRONG, dropped"}`,
+    );
+    if (correct && (!best || run.ms < best.ms)) best = { dir, ms: run.ms, label };
+  });
+
+  const winner = best as { dir: string; ms: number; label: string } | null;
+  if (!winner) fail("No variant produced the right output. Nothing to submit.");
+  rmSync(baseOut, { force: true });
+  console.log(`• best: ${winner.label}, ${(base.ms / winner.ms).toFixed(2)}× on this GPU (verifiers will re-check)`);
+  return winner.dir;
 }
 
 /** Two .npy tensors match within a float tolerance (different kernels round differently). */
@@ -265,13 +352,15 @@ async function submit() {
   const track = flag("track");
   if (!code || !track) fail('Usage: vtec-agent submit <CODE> --track <id> --build <dir> [--run "<command>"]');
 
-  // You must say which build. The baseline is the reference everything is
-  // measured against, so submitting it can only ever score 1.00x.
+  // No --build: the agent tunes a kernel for this GPU itself and submits the
+  // winner. The baseline is the reference everything is measured against, so
+  // it can never be submitted.
   const builds = listBuilds(track);
   const options = builds.map((b) => `    --build tracks/${track}/${b}`).join("\n");
   const choice = flag("build");
-  if (!choice) fail(`Say which build to submit with --build. Available for ${track}:\n${options}`);
-  const build = path.resolve(choice);
+  const tune = trackConfig(track).tune;
+  if (!choice && !tune) fail(`Say which build to submit with --build. Available for ${track}:\n${options}`);
+  const build = choice ? path.resolve(choice) : autotune(track, tune!);
   if (!existsSync(build)) fail(`Build folder not found: ${build}`);
   if (build === path.resolve(REPO, "tracks", track, "baseline")) {
     fail(

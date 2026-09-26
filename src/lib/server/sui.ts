@@ -9,7 +9,7 @@ import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 /**
  * Sui testnet, package `vtec` (move/vtec):
  *   human  - HumanPass, minted after a World ID proof (World -> Sui)
- *   vault  - 0.5 SUI process fee per submission, split between verifiers;
+ *   vault  - 0.01 SUI process fee per submission, split between verifiers;
  *            on-chain random seed for drawing verifiers
  *   market - Listing per verified kernel; `buy` = pay + split + License
  *
@@ -28,7 +28,7 @@ export const sui = {
   humansId: process.env.SUI_HUMANS_ID ?? "",
   adminCapId: process.env.SUI_ADMIN_CAP_ID ?? "",
   adminKey: process.env.SUI_ADMIN_KEY ?? "",
-  feeMist: BigInt(Math.round(Number(process.env.NEXT_PUBLIC_FEE_SUI ?? "0.5") * 1e9)),
+  feeMist: BigInt(Math.round(Number(process.env.NEXT_PUBLIC_FEE_SUI ?? "0.01") * 1e9)),
   priceMist: BigInt(Math.round(Number(process.env.NEXT_PUBLIC_LICENSE_SUI ?? "0.1") * 1e9)),
 };
 

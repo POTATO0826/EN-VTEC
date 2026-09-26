@@ -22,7 +22,7 @@ VTEC checks every claimed speedup on independent hardware before money moves, an
 
 ```
 Get started   connect Slush -> World ID (proof bound to that wallet) -> HumanPass minted on Sui -> pair local agent
-Submit        approve with World ID -> pay 0.5 SUI process fee (needs your HumanPass) -> agent uploads exact code + SHA-256
+Submit        approve with World ID -> pay 0.01 SUI process fee (needs your HumanPass) -> agent uploads exact code + SHA-256
 Verify        verifiers drawn with Sui on-chain randomness -> each re-runs baseline vs candidate on seeded inputs
               -> commit, then reveal -> majority decides -> fee split on-chain between the verifiers who ran it
 Buy           one PTB: pay -> 70% tuner / 20% lineage / 10% platform -> License minted to the buyer's wallet
@@ -36,6 +36,7 @@ While the verifier pool is small, a **platform harness** (the same agent, run by
 | Build | What it is | Harness verdict |
 |---|---|---|
 | `baseline` | Generic, unfused (square, mean, rsqrt, multiply as separate GPU passes) | reference, ~4.8 s |
+| auto-tuned | **The agent's own run on this GPU:** random variants of a fused kernel (threads × load path), each checked against the baseline and timed; the fastest correct one is submitted. Verified at **2.48×** |
 | `tuned` | One fused kernel: float4 loads + warp-shuffle reduction | **✅ 2.55× faster, same output on every seed, noise ±0.8%. Verified, listed on Sui** |
 | `wrong-fast` | Skips the reduction: 4.8× "faster" | **❌ Different output on every seed. Rejected** |
 
@@ -71,6 +72,7 @@ Agent (in the project folder):
 
 ```bash
 bun agent/vtec-agent.ts pair <CODE>
+bun agent/vtec-agent.ts submit <CODE> --track rmsnorm-4096          # agent auto-tunes a kernel on this GPU
 bun agent/vtec-agent.ts submit <CODE> --track rmsnorm-4096 --build tracks/rmsnorm-4096/tuned
 bun agent/vtec-agent.ts verify <CODE>
 ```

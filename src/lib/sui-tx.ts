@@ -9,7 +9,7 @@ export const SUI = {
   vaultId: process.env.NEXT_PUBLIC_SUI_VAULT_ID ?? "",
   marketId: process.env.NEXT_PUBLIC_SUI_MARKET_ID ?? "",
   licenseSui: Number(process.env.NEXT_PUBLIC_LICENSE_SUI ?? "0.1"),
-  feeSui: Number(process.env.NEXT_PUBLIC_FEE_SUI ?? "0.5"),
+  feeSui: Number(process.env.NEXT_PUBLIC_FEE_SUI ?? "0.01"),
 };
 
 export const suiReady = () => !!(SUI.packageId && SUI.vaultId);

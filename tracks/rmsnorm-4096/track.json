@@ -1,5 +1,29 @@
 {
   "output": "out.npy",
   "compare": "tensor",
-  "tolerance": 0.001
+  "tolerance": 0.001,
+  "tune": {
+    "template": "template.py",
+    "file": "rmsnorm.py",
+    "requires": {
+      "nvidiaDriver": "525"
+    },
+    "params": {
+      "THREADS": [
+        128,
+        256,
+        512,
+        1024
+      ],
+      "LOAD": [
+        "plain",
+        "ldg"
+      ]
+    },
+    "derived": {
+      "PER_THREAD": "1024 / THREADS",
+      "LOAD_EXPR": "LOAD == 'ldg' ? '__ldg(p)' : '(*(p))'"
+    },
+    "samples": 4
+  }
 }
