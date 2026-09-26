@@ -224,7 +224,7 @@ function combinations(params: Record<string, (string | number)[]>) {
  * the fastest correct one. Different runs explore different variants, so each
  * submission is new code.
  */
-function autotune(track: string, tune: TuneConfig) {
+function autotune(track: string, tune: TuneConfig, say: (line: string) => void = console.log) {
   const trackDir = path.join(REPO, "tracks", track);
   const template = readFileSync(path.join(trackDir, tune.template), "utf8");
   const cfg = trackConfig(track);
@@ -236,14 +236,14 @@ function autotune(track: string, tune: TuneConfig) {
 
   mkdirSync(path.join(REPO, ".vtec-runs"), { recursive: true });
   const work = mkdtempSync(path.join(REPO, ".vtec-runs", `tune-${track}-`));
-  console.log(
+  say(
     `• tuning ${track} on ${detectGpus()[0]?.name ?? "this machine"}: ${picked.length} of ${all.length} variants, seed ${seed}`,
   );
 
   const baseline = path.join(trackDir, "baseline");
   const baseOut = path.join(work, `baseline${ext}`);
   const base = runOnce(baseline, manifestOf(baseline).run!, seed, baseOut);
-  console.log(`  ${"baseline".padEnd(28)} ${(base.ms / 1000).toFixed(2)} s`);
+  say(`  ${"baseline".padEnd(28)} ${(base.ms / 1000).toFixed(2)} s`);
 
   let best: { dir: string; ms: number; label: string } | null = null;
   picked.forEach((combo, i) => {
@@ -270,7 +270,7 @@ function autotune(track: string, tune: TuneConfig) {
     const run = runOnce(dir, `{python} ${tune.file}`, seed, out);
     const correct = tensorError(baseOut, out) <= (cfg.tolerance ?? 1e-3);
     rmSync(out, { force: true });
-    console.log(
+    say(
       `  ${label.padEnd(28)} ${(run.ms / 1000).toFixed(2)} s  ${(base.ms / run.ms).toFixed(2)}×  ${correct ? "correct" : "WRONG, dropped"}`,
     );
     if (correct && (!best || run.ms < best.ms)) best = { dir, ms: run.ms, label };
@@ -279,7 +279,7 @@ function autotune(track: string, tune: TuneConfig) {
   const winner = best as { dir: string; ms: number; label: string } | null;
   if (!winner) fail("No variant produced the right output. Nothing to submit.");
   rmSync(baseOut, { force: true });
-  console.log(`• best: ${winner.label}, ${(base.ms / winner.ms).toFixed(2)}× on this GPU (verifiers will re-check)`);
+  say(`• best: ${winner.label}, ${(base.ms / winner.ms).toFixed(2)}× on this GPU (verifiers will re-check)`);
   return winner.dir;
 }
 
@@ -365,7 +365,13 @@ async function submit() {
   const choice = flag("build");
   const tune = trackConfig(track).tune;
   if (!choice && !tune) fail(`Say which build to submit with --build. Available for ${track}:\n${options}`);
-  const build = choice ? path.resolve(choice) : autotune(track, tune!);
+  // Everything submit prints is also sent with the build, so the platform can show how it was made.
+  const log: string[] = [];
+  const say = (line: string) => {
+    console.log(line);
+    log.push(line);
+  };
+  const build = choice ? path.resolve(choice) : autotune(track, tune!, say);
   if (!existsSync(build)) fail(`Build folder not found: ${build}`);
   if (build === path.resolve(REPO, "tracks", track, "baseline")) {
     fail(
@@ -376,7 +382,7 @@ async function submit() {
   const manifest = manifestOf(build);
   const run = flag("run") ?? manifest.run;
   if (!run) fail(`No --run given and no "run" in ${path.join(build, "vtec.json")}`);
-  if (manifest.name) console.log(`• build  ${manifest.name}`);
+  if (manifest.name) say(`• build  ${manifest.name}`);
 
   const compat = checkCompatible(manifest.requires ?? {});
   if (!compat.ok) fail(`This machine can't run the build: ${compat.reason}.`);
@@ -384,11 +390,11 @@ async function submit() {
   // Hash before running, so nothing the run writes can change the code hash.
   const files = readBuild(build);
   const buildSha256 = hashFiles(files);
-  console.log(`• code   sha256 ${buildSha256}`);
+  say(`• code   sha256 ${buildSha256}`);
 
   const { ms, sha256: resultSha256 } = runOnce(build, run);
-  console.log(`• output sha256 ${resultSha256}`);
-  console.log(`• time   ${(ms / 1000).toFixed(3)} s`);
+  say(`• output sha256 ${resultSha256}`);
+  say(`• time   ${(ms / 1000).toFixed(3)} s`);
 
   const data = await post("/api/agent/submit", {
     code,
@@ -399,6 +405,7 @@ async function submit() {
     seconds: ms / 1000,
     requires: manifest.requires ?? {},
     files,
+    log,
   });
   console.log(`✓ Submitted ${data.id}: pending verification. It reaches the ranking once verifiers agree.`);
   console.log(`  Watch it run: ${URL_BASE}/tuners/${track}#run_${data.id}`);

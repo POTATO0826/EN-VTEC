@@ -73,6 +73,8 @@ export type Submission = {
   harness?: boolean;
   /** Where the process fee went once verification ended. */
   feeSettlement?: { digest: string; recipients: string[] } | null;
+  /** What the tuner's agent printed while building and submitting it: the auto-tune run, hashes, timing. */
+  tuneLog?: string[];
   /** On sale once verified: the shared Listing on Sui. */
   listing?: { id: string; digest: string; lineage: string } | null;
   at: string;

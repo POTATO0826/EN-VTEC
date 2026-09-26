@@ -8,7 +8,6 @@ import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { PageTitle } from "@/components/ui/step";
 import { CommandBlock } from "@/components/tuners/TrackView";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
-import { submissionHref } from "@/lib/models";
 import { useSessionId, useSessionStatus } from "@/lib/session";
 
 type Report = {
@@ -95,14 +94,14 @@ export default function VerifyView() {
             ) : null}
           </h2>
           <p className="text-sm text-muted-foreground">
-            While the pool is small, the platform runs the same verifier agent on its own machine. Open a job for the
-            full result: skill chart, every run and the on-chain receipts.
+            While the pool is small, the platform runs the same verifier agent on its own machine. Open a job to see
+            how it was verified: every run, the pass rule and the on-chain receipts.
           </p>
           <div className="overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
             {me.harness.jobs.map((job) => (
               <Link
                 key={job.submissionId}
-                href={submissionHref(job.trackId, job.submissionId)}
+                href={`/verify/${job.submissionId}`}
                 className="flex items-center justify-between gap-4 border-b border-border/40 px-4 py-3 text-sm text-foreground transition-colors last:border-0 hover:bg-accent/40 hover:text-foreground"
               >
                 <span>
@@ -121,7 +120,7 @@ export default function VerifyView() {
                     {job.speedup !== null ? `${job.speedup.toFixed(2)}× ${job.pass ? "pass" : "fail"}` : "running…"}
                   </span>
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    Full result <ArrowUpRightIcon className="size-3.5" />
+                    How it was verified <ArrowUpRightIcon className="size-3.5" />
                   </span>
                 </span>
               </Link>
@@ -173,8 +172,8 @@ function Job({
         </div>
         <span className="flex items-center gap-3">
           <StatusBadge status={sub.status} />
-          <Link href={submissionHref(sub.trackId, sub.id)} className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
-            Full result <ArrowUpRightIcon className="size-3.5" />
+          <Link href={`/verify/${sub.id}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
+            How it was verified <ArrowUpRightIcon className="size-3.5" />
           </Link>
         </span>
       </div>

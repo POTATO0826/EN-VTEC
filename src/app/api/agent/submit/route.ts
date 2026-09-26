@@ -30,6 +30,8 @@ export async function POST(request: Request) {
     seconds?: number;
     requires?: BuildRequirements;
     files?: Record<string, string>;
+    /** What the agent printed while tuning and submitting. */
+    log?: unknown;
   } | null;
 
   const track = body?.trackId ? findTrack(body.trackId) : null;
@@ -86,6 +88,8 @@ export async function POST(request: Request) {
       seconds: body.seconds!,
       gpu: agent.gpus[0]?.name ?? agent.cpu,
       requires: body.requires ?? {},
+      // Shown on the verification page; bounded so a client can't store a novel.
+      tuneLog: Array.isArray(body.log) ? body.log.slice(0, 60).map((l) => String(l).slice(0, 200)) : undefined,
       status: "pending",
       draw: null,
       speedup: null,
