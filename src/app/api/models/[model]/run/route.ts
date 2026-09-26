@@ -1,4 +1,5 @@
-import { findModel, findWorkload } from "@/lib/models";
+import { findModel, findWorkload, onMachine } from "@/lib/models";
+import { yourMachine } from "@/lib/server/machine";
 
 /**
  * Runs a prompt "on" a model from the catalogue. The answer comes from an
@@ -22,8 +23,9 @@ const MAX_PROMPT = 4000;
 
 export async function POST(request: Request, ctx: RouteContext<"/api/models/[model]/run">) {
   const { model: id } = await ctx.params;
-  const model = findModel(id);
-  if (!model) return Response.json({ error: "unknown_model" }, { status: 404 });
+  const found = findModel(id);
+  if (!found) return Response.json({ error: "unknown_model" }, { status: 404 });
+  const model = onMachine(found, await yourMachine());
   if (!API_KEY) {
     return Response.json(
       { error: "not_configured", detail: "Add OPENAI_API_KEY to .env.local and restart the dev server." },

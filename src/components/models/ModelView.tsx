@@ -7,10 +7,11 @@ import { ArrowLeftIcon, ShoppingCartIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import GetKernelDialog, { type Purchasable } from "@/components/models/GetKernel";
+import ModelOrb from "@/components/models/ModelOrb";
 import RunPanel from "@/components/models/RunPanel";
 import SkillChart from "@/components/results/SkillChart";
 import { STATUS } from "@/components/results/status";
-import { modelEntry, sampleKernels, WORKLOADS, type KernelRow, type Model, type WorkloadId } from "@/lib/models";
+import { fitLabel, modelEntry, sampleKernels, WORKLOADS, type KernelRow, type Model, type WorkloadId } from "@/lib/models";
 import { shortAddress, SUI } from "@/lib/sui-tx";
 
 declare module "react" {
@@ -165,16 +166,33 @@ export default function ModelView({ model, initialWorkload }: { model: Model; in
                 <h6 className="m-0 mb-1.5 text-xs tracking-[0.18em] text-muted-foreground uppercase">
                   {model.vendor} · {model.params} · {model.active}
                 </h6>
-                <h1 className="m-0 mb-2 font-display text-[40px] leading-[1.05] font-extrabold tracking-[-0.02em] text-pretty">{model.name}</h1>
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="shrink-0">
+                    <ModelOrb modelId={model.id} size={56} />
+                  </span>
+                  <h1 className="m-0 font-display text-[40px] leading-[1.05] font-extrabold tracking-[-0.02em] text-pretty">{model.name}</h1>
+                </div>
                 <p className="m-0 text-[15px] text-pretty text-muted-foreground">{model.summary}</p>
+                {model.fit ? (
+                  <p
+                    className="mt-2 mb-0 text-sm text-pretty"
+                    style={{ color: model.fit.verdict === "fits" ? "var(--success)" : model.fit.verdict === "offload" ? "var(--warning)" : "var(--danger)" }}
+                  >
+                    {model.fit.note}
+                  </p>
+                ) : null}
               </div>
               <dl className="m-0 hidden gap-px overflow-hidden rounded-lg border border-border/60 bg-border/60 text-xs backdrop-blur-sm md:mt-9 md:grid md:max-w-[620px] md:grid-cols-5">
                 {(
                   [
                     ["Weights", `${model.quant} · ${model.sizeGb} GB`, true],
                     ["Context", `${model.contextK}K tokens`, true],
-                    ["Runs on", model.hardware, false],
-                    ["License", model.license, false],
+                    ["Your laptop", fitLabel(model), false],
+                    [
+                      "Est. decode",
+                      model.fit ? `~${model.fit.decodeTps} tok/s${model.fit.verdict === "too-large" ? " (ref.)" : ""}` : "—",
+                      true,
+                    ],
                     ["Kernels", `${verifiedCount} of ${WORKLOADS.length} workloads`, false],
                   ] as [string, string, boolean][]
                 ).map(([k, v, mono]) => (

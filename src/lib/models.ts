@@ -32,6 +32,9 @@ export type Model = {
   quant: string;
   contextK: number;
   sizeGb: number;
+  /** Weights read per generated token, in GB: all of them for a dense model, the active experts for a MoE. */
+  activeGb: number;
+  moe: boolean;
   license: string;
   summary: string;
   tags: string[];
@@ -41,7 +44,107 @@ export type Model = {
   tracks: Partial<Record<WorkloadId, string>>;
   /** Sample status per workload; a workload without one is pending. */
   status: Partial<Record<WorkloadId, "verified" | "rejected">>;
+  /** How it runs on the viewer's machine; set by onMachine(). */
+  fit?: Fit;
 };
+
+/** The viewer's machine, as their paired agent reported it. */
+export type Machine = { host: string; gpu: string; vramGb: number; driver: string | null; cpu: string };
+
+export type Fit = {
+  verdict: "fits" | "offload" | "too-large";
+  machine: Machine;
+  /** Estimated decode speed with the stock kernels, tokens per second. */
+  decodeTps: number;
+  /** GB of weights on the GPU; the rest sit in system RAM. */
+  gpuGb: number;
+  /** One plain sentence explaining the verdict. */
+  note: string;
+};
+
+/** What the numbers are based on, for GPUs we know. */
+export const GPU_SPECS: Record<string, { bandwidthGBs: number; arch: string; memory: string; cores: string; power: string }> = {
+  "NVIDIA GeForce RTX 4060 Laptop GPU": {
+    bandwidthGBs: 256,
+    arch: "Ada Lovelace · sm_89",
+    memory: "8 GB GDDR6 · 128-bit",
+    cores: "3,072 CUDA · 96 Tensor",
+    power: "35–140 W",
+  },
+  "NVIDIA GeForce RTX 4090": { bandwidthGBs: 1008, arch: "Ada Lovelace · sm_89", memory: "24 GB GDDR6X · 384-bit", cores: "16,384 CUDA", power: "450 W" },
+  "Apple M3 Ultra · 512 GB": { bandwidthGBs: 819, arch: "Apple M3 Ultra", memory: "512 GB unified", cores: "80-core GPU", power: "~200 W" },
+};
+
+/** System RAM bandwidth a laptop gets for offloaded layers (dual-channel DDR5), GB/s. */
+const RAM_BW = 50;
+/** VRAM kept free for the KV cache and the runtime, GB. */
+const VRAM_RESERVE = 1;
+/** Largest share of weights we'd expect a laptop to hold in system RAM, GB. */
+const RAM_LIMIT = 48;
+/** Fraction of peak memory bandwidth decode reaches in practice. */
+const efficiency = (m: { moe: boolean }) => (m.moe ? 0.4 : 0.75);
+
+const round1 = (v: number) => Math.round(v * 10) / 10;
+
+/**
+ * The model as it runs on this machine: its "runs on" becomes the viewer's
+ * GPU when the weights fit (or fit with CPU offload), and stays the reference
+ * machine, with a note, when they're far too large for a laptop.
+ */
+export function onMachine(model: Model, machine: Machine | null): Model {
+  if (!machine) return model;
+  const bw = GPU_SPECS[machine.gpu]?.bandwidthGBs ?? 200;
+  const vramFree = Math.max(0, machine.vramGb - VRAM_RESERVE);
+  const vram = round1(machine.vramGb);
+  const gpuName = machine.gpu.replace(/^NVIDIA GeForce /, "");
+  if (model.sizeGb <= vramFree) {
+    const decodeTps = round1((efficiency(model) * bw) / model.activeGb);
+    return {
+      ...model,
+      hardware: machine.gpu,
+      fit: { verdict: "fits", machine, decodeTps, gpuGb: model.sizeGb, note: `Fits in your ${gpuName}'s ${vram} GB: ${model.sizeGb} GB of weights plus ~${VRAM_RESERVE} GB for the KV cache.` },
+    };
+  }
+  const ramGb = model.sizeGb - vramFree;
+  if (ramGb <= RAM_LIMIT) {
+    const onGpu = vramFree / model.sizeGb;
+    const secondsPerToken = (model.activeGb * onGpu) / bw + (model.activeGb * (1 - onGpu)) / RAM_BW;
+    const decodeTps = round1(efficiency(model) / secondsPerToken);
+    return {
+      ...model,
+      hardware: machine.gpu,
+      fit: {
+        verdict: "offload",
+        machine,
+        decodeTps,
+        gpuGb: round1(vramFree),
+        note: `${model.sizeGb} GB of weights won't fit in ${vram} GB: ~${round1(vramFree)} GB run on the GPU, ~${round1(ramGb)} GB from system RAM (needs ${Math.ceil(ramGb + 8)} GB+ RAM). Works, but slower.`,
+      },
+    };
+  }
+  const refBw = GPU_SPECS[model.hardware]?.bandwidthGBs ?? 800;
+  return {
+    ...model,
+    fit: {
+      verdict: "too-large",
+      machine,
+      decodeTps: round1((efficiency(model) * refBw) / model.activeGb),
+      gpuGb: 0,
+      note: `${model.sizeGb} GB of weights is far beyond a laptop with ${vram} GB of VRAM. The figures below are for ${model.hardware}.`,
+    },
+  };
+}
+
+/** Short verdict for badges. */
+export function fitLabel(model: Model) {
+  if (!model.fit) return "Pair your agent to check your GPU";
+  const gpu = model.fit.machine.gpu.replace(/^NVIDIA GeForce /, "");
+  return model.fit.verdict === "fits"
+    ? `Fits your ${gpu}`
+    : model.fit.verdict === "offload"
+      ? `Runs with CPU offload`
+      : `Too large for your laptop`;
+}
 
 const RTX4060L = "NVIDIA GeForce RTX 4060 Laptop GPU";
 const RTX4090 = "NVIDIA GeForce RTX 4090";
@@ -57,6 +160,8 @@ export const MODELS: Model[] = [
     quant: "Q3_K_M",
     contextK: 256,
     sizeGb: 452,
+    activeGb: 15.6,
+    moe: true,
     license: "Modified MIT",
     summary: "Moonshot's newest mixture-of-experts. Agentic coding and long-context reasoning; runs locally on a 512 GB unified-memory machine.",
     tags: ["agentic", "coding", "256K context"],
@@ -73,6 +178,8 @@ export const MODELS: Model[] = [
     quant: "Q3_K_M",
     contextK: 128,
     sizeGb: 431,
+    activeGb: 15.6,
+    moe: true,
     license: "Modified MIT",
     summary: "The open-weights K2 mixture-of-experts. Strong at tool use and code; the model most people run on a Mac Studio.",
     tags: ["tool use", "coding", "MoE"],
@@ -89,6 +196,8 @@ export const MODELS: Model[] = [
     quant: "Q4_K_M",
     contextK: 128,
     sizeGb: 5.0,
+    activeGb: 5,
+    moe: false,
     license: "Apache 2.0",
     summary: "The 8B Qwen3 with thinking mode. Fits an 8 GB laptop GPU at Q4 and shares the 4096-wide RMSNorm with Llama-class models.",
     tags: ["thinking", "8 GB GPU", "multilingual"],
@@ -105,6 +214,8 @@ export const MODELS: Model[] = [
     quant: "Q4_K_M",
     contextK: 128,
     sizeGb: 4.9,
+    activeGb: 4.9,
+    moe: false,
     license: "Llama 3.1 Community",
     summary: "The reference local model. Its RMSNorm runs twice per layer, which is exactly the kernel this platform's first track tunes.",
     tags: ["reference", "8 GB GPU", "RMSNorm track"],
@@ -121,6 +232,8 @@ export const MODELS: Model[] = [
     quant: "Q5_K_M",
     contextK: 128,
     sizeGb: 10.5,
+    activeGb: 10.5,
+    moe: false,
     license: "MIT",
     summary: "The Qwen-distilled R1 reasoner. Long chains of thought, so decode throughput and p99 latency matter more than prefill.",
     tags: ["reasoning", "24 GB GPU", "distilled"],
@@ -137,6 +250,8 @@ export const MODELS: Model[] = [
     quant: "Q4_K_M",
     contextK: 128,
     sizeGb: 16.5,
+    activeGb: 16.5,
+    moe: false,
     license: "Gemma Terms",
     summary: "Multimodal Gemma at 27B. Image and video understanding on a single 24 GB card, with a vision tower the diffusion kernels also serve.",
     tags: ["vision", "24 GB GPU", "multimodal"],
@@ -180,19 +295,25 @@ function rng(seed: number) {
 
 const MODEL_SPOKES = SPOKE_SETS.model.spokes;
 
-/** Baseline numbers for the model's reference machine, scaled by model size. */
+/** Watts drawn while generating: GPU alone, or GPU plus CPU when layers are offloaded. */
+export function wattsOf(model: Model) {
+  if (model.fit?.verdict === "fits") return 95;
+  if (model.fit?.verdict === "offload") return 130;
+  return model.hardware === M3U ? 140 : model.hardware === RTX4090 ? 380 : 95;
+}
+
+/**
+ * Stock-kernel numbers for the model on the machine it runs on. Decode is
+ * memory-bandwidth bound (weights read per token ÷ bandwidth); prefill, p99,
+ * TPM and energy follow from it. Kernel time is the RMSNorm baseline on that GPU.
+ */
 function baselineOf(model: Model): Metrics {
-  const rig: Record<string, Metrics> = {
-    [RTX4060L]: { tpm: 1980, energy: 0.31, speed: 412, p99: 88, prefill: 640, tps: 34.5 },
-    [RTX4090]: { tpm: 8400, energy: 0.115, speed: 96, p99: 21, prefill: 3900, tps: 142 },
-    [M3U]: { tpm: 2600, energy: 0.17, speed: 330, p99: 61, prefill: 820, tps: 46 },
-  };
-  const base = rig[model.hardware] ?? rig[RTX4090];
-  // Bigger active weights: slower decode, more energy per token.
-  const k = model.sizeGb > 100 ? 0.55 : model.sizeGb > 12 ? 0.6 : model.sizeGb > 8 ? 0.8 : 1;
-  return Object.fromEntries(
-    MODEL_SPOKES.map((s) => [s.key, base[s.key]! * (s.lower ? 1 / k : k)]),
-  );
+  const tps = model.fit && model.fit.verdict !== "too-large"
+    ? model.fit.decodeTps
+    : (efficiency(model) * (GPU_SPECS[model.hardware]?.bandwidthGBs ?? 256)) / model.activeGb;
+  const prefillX = model.fit?.verdict === "offload" ? 8 : model.fit?.verdict === "fits" ? 20 : 12;
+  const kernelUs = model.hardware === RTX4060L ? 412 : model.hardware === RTX4090 ? 96 : 330;
+  return { tps, tpm: tps * 60, prefill: tps * prefillX, p99: (1000 / tps) * 1.6, energy: wattsOf(model) / tps, speed: kernelUs };
 }
 
 const scale = (base: Metrics, m: Metrics) => Object.fromEntries(MODEL_SPOKES.map((s) => [s.key, base[s.key]! * m[s.key]!]));
@@ -406,7 +527,7 @@ export function sampleDetail(model: Model, workloadId: WorkloadId, kernelId: str
     detail: { ...base.detail, status: row.status, buildSha256: row.buildSha256, submittedAt: row.submittedAt, harness: row.harness, outcome: { speedup: row.speedup, at: row.submittedAt } },
   };
   const duration = 2 + r() * 6;
-  const power = model.hardware === M3U ? 90 + r() * 60 : model.hardware === RTX4090 ? 280 + r() * 120 : 60 + r() * 45;
+  const power = wattsOf(model) * (0.85 + r() * 0.3);
   const history: HistoryEntry[] = [];
   const tps0 = base.baseline.tps!;
   // The history ends where this kernel's verified decode rate is.
@@ -437,8 +558,13 @@ export function sampleDetail(model: Model, workloadId: WorkloadId, kernelId: str
     entry,
     harness: {
       gpu: model.hardware,
-      cpu: CPUS[Math.floor(r() * CPUS.length)],
-      driver: model.hardware === M3U ? "Metal 4" : `${560 + Math.floor(r() * 20)}.${Math.floor(r() * 99)}`,
+      cpu: model.fit && model.fit.verdict !== "too-large" ? model.fit.machine.cpu : CPUS[Math.floor(r() * CPUS.length)],
+      driver:
+        model.fit && model.fit.verdict !== "too-large"
+          ? (model.fit.machine.driver ?? "—")
+          : model.hardware === M3U
+            ? "Metal 4"
+            : `${560 + Math.floor(r() * 20)}.${Math.floor(r() * 99)}`,
       model: `${model.name} · ${model.quant} · ${model.contextK}K context`,
       runs: 4 + Math.floor(r() * 3),
       noisePct: Math.round((1 + r() * 4) * 10) / 10,
