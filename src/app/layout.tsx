@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import AppProviders from "@/components/providers/AppProviders";
 import Background from "@/components/shell/Background";
 import Header from "@/components/shell/Header";
-import JourneyBar from "@/components/shell/JourneyBar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +25,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <Background />
           <div className="relative z-[2] flex min-h-screen flex-col">
             <Header />
-            <JourneyBar />
             <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 md:px-8 md:py-14">
               {children}
             </main>
