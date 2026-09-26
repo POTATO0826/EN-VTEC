@@ -1,4 +1,5 @@
 import { findModel, findWorkload, onMachine } from "@/lib/models";
+import { llm } from "@/lib/server/llm";
 import { yourMachine } from "@/lib/server/machine";
 
 /**
@@ -15,9 +16,7 @@ import { yourMachine } from "@/lib/server/machine";
  * (default gpt-4o-mini).
  */
 
-const BASE_URL = (process.env.LLM_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
-const API_KEY = process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
-const MODEL = process.env.LLM_MODEL ?? "gpt-4o-mini";
+const { baseUrl: BASE_URL, apiKey: API_KEY, model: MODEL } = llm;
 const MAX_TOKENS = 600;
 const MAX_PROMPT = 4000;
 

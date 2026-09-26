@@ -19,6 +19,9 @@ export type VerifierStory = {
   source: "harness log" | "report" | "running";
   lines: string[];
   checks: Check[];
+  /** Every timed run in seconds, when the report or the log has them. */
+  runs: { base: number[]; cand: number[] } | null;
+  noisePct: number | null;
   speedup: number | null;
   pass: boolean | null;
 };
@@ -160,6 +163,8 @@ export function verificationStory(data: Data, id: string, sessionId: string | nu
           source: "running",
           lines: [`▶ ${sub.id} · ${sub.trackId} · ${sub.buildName}`, platform && harnessRunning() ? "  running baseline vs this build now…" : "  waiting for this verifier to run it…"],
           checks: [],
+          runs: null,
+          noisePct: null,
           speedup: null,
           pass: null,
         };
@@ -173,6 +178,8 @@ export function verificationStory(data: Data, id: string, sessionId: string | nu
         source: logged ? "harness log" : "report",
         lines,
         checks: checksOf(r, lines, tolerance),
+        runs: r.compatible ? runsOf(r, lines) : null,
+        noisePct: r.compatible ? r.noisePct : null,
         speedup: r.compatible ? r.speedup : null,
         pass: r.compatible ? r.pass : null,
       };

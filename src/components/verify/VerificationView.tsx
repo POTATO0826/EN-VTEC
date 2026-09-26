@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeftIcon, CheckIcon, ExternalLinkIcon, RotateCcwIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, CheckIcon, ExternalLinkIcon, LoaderIcon, RotateCcwIcon, SparklesIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useSessionId } from "@/lib/session";
@@ -16,6 +16,8 @@ type VerifierStory = {
   source: "harness log" | "report" | "running";
   lines: string[];
   checks: Check[];
+  runs: { base: number[]; cand: number[] } | null;
+  noisePct: number | null;
   speedup: number | null;
   pass: boolean | null;
 };
@@ -121,6 +123,14 @@ export default function VerificationView({ id }: { id: string }) {
           </div>
         </div>
       </header>
+
+      <AgentAnalysis
+        story={story}
+        id={story.id}
+        sessionId={sessionId}
+        // Re-analyse whenever the record moves: a verifier reports, or the verdict lands.
+        version={`${story.status}:${story.verifiers.map((v) => v.source).join(",")}`}
+      />
 
       <ol className="relative flex flex-col gap-12 border-l border-border/60 pl-6 md:pl-10">
         <Stage n={1} title="Tuned on your laptop" state="done">
@@ -252,6 +262,123 @@ export default function VerificationView({ id }: { id: string }) {
 }
 
 /* -------------------------------------------------------------------------- */
+
+type Analysis = { verdict: string; tuning: string[]; testing: string[]; performance: string[]; next: string[]; caveat: string };
+
+const medianOf = (v: number[]) => {
+  const s = [...v].sort((a, b) => a - b);
+  return s.length % 2 ? s[s.length >> 1] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
+
+/** The numbers that matter, computed here from the verifiers' runs, not by the model. */
+function keyNumbers(story: Story): [string, string][] {
+  const timed = story.verifiers.filter((v) => v.runs && v.runs.cand.length);
+  const before = timed.length ? medianOf(timed.map((v) => medianOf(v.runs!.base))) : null;
+  const after = timed.length ? medianOf(timed.map((v) => medianOf(v.runs!.cand))) : null;
+  const noise = timed.map((v) => v.noisePct).filter((n): n is number => n != null);
+  const passed = story.verifiers.filter((v) => v.pass).length;
+  return [
+    ["Speedup", story.speedup ? `${story.speedup.toFixed(2)}×` : story.status === "rejected" ? "not faster" : "…"],
+    ["Before → after", before != null && after != null ? `${before.toFixed(2)} s → ${after.toFixed(2)} s` : "…"],
+    ["Noise", noise.length ? `±${Math.max(...noise)}%` : "…"],
+    ["Verifiers", story.verifiers.length ? `${passed}/${story.verifiers.length} passed` : "…"],
+  ];
+}
+
+const ANALYSIS_SECTIONS: ["tuning" | "testing" | "performance" | "next", string][] = [
+  ["tuning", "How it was tuned"],
+  ["testing", "How it was tested"],
+  ["performance", "Performance"],
+  ["next", "What happens next"],
+];
+
+/** The agent's written analysis of everything below: tuning, testing, performance. */
+function AgentAnalysis({ story, id, sessionId, version }: { story: Story; id: string; sessionId: string | null; version: string }) {
+  const [data, setData] = React.useState<{ analysis: Analysis; model: string; at: string } | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const fetchAnalysis = React.useCallback(
+    async (refresh: boolean) => {
+      if (!sessionId) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/verification/${id}/summary?session=${sessionId}${refresh ? "&refresh=1" : ""}`, { cache: "no-store" });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.detail ?? json.error ?? `HTTP ${res.status}`);
+        setData(json);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [id, sessionId],
+  );
+
+  React.useEffect(() => {
+    fetchAnalysis(false);
+  }, [fetchAnalysis, version]);
+
+  return (
+    <section className="mb-12 overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
+        <span className="inline-flex items-center gap-2 text-sm font-medium">
+          <SparklesIcon className="size-4 text-[var(--info)]" /> Agent analysis
+        </span>
+        <Button variant="ghost" size="sm" className="rounded-full" onClick={() => fetchAnalysis(true)} disabled={busy || !sessionId}>
+          {busy ? <LoaderIcon className="animate-spin" /> : <RotateCcwIcon />} {busy ? "Analysing…" : "Regenerate"}
+        </Button>
+      </div>
+      <div className="px-5 py-4">
+        {error ? (
+          <p className="text-sm text-[var(--danger)]">{error}</p>
+        ) : !data ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderIcon className="size-4 animate-spin" /> The agent is reading the logs below…
+          </p>
+        ) : (
+          <div className={`flex flex-col gap-4 transition-opacity ${busy ? "opacity-50" : ""}`}>
+            <p className="text-lg text-pretty">{data.analysis.verdict}</p>
+            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/60 bg-border/60 md:grid-cols-4">
+              {keyNumbers(story).map(([k, v]) => (
+                <div key={k} className="bg-card/80 px-3 py-2.5">
+                  <dt className="text-[10px] tracking-[0.12em] text-muted-foreground uppercase">{k}</dt>
+                  <dd className="vtec-num mt-1 text-base">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+              {ANALYSIS_SECTIONS.filter(([k]) => data.analysis[k].length).map(([k, label]) => (
+                <div key={k}>
+                  <h3 className="text-[11px] tracking-[0.12em] text-muted-foreground uppercase">{label}</h3>
+                  <ul className="mt-1.5 flex flex-col gap-1">
+                    {data.analysis[k].map((b) => (
+                      <li key={b} className="flex gap-2 text-sm text-foreground/90">
+                        <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--success)]" />
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            {data.analysis.caveat ? (
+              <p className="flex items-start gap-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-sm text-pretty">
+                <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-[var(--warning)]" /> {data.analysis.caveat}
+              </p>
+            ) : null}
+            <p className="micro">
+              Written by {data.model} from the record on this page only, {new Date(data.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}.
+              The numbers are computed by the platform, not the model.
+            </p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function Back() {
   return (
