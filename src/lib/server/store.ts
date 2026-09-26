@@ -24,18 +24,15 @@ export type AgentInfo = {
   lastSeen: string;
 };
 
+/** A human's World ID approval for one agent submission to one track. */
 export type Approval = {
   id: string;
   sessionId: string;
   trackId: string;
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  verificationUriComplete: string | null;
-  interval: number;
-  expiresAt: number;
-  status: "pending" | "approved" | "denied" | "expired";
-  sub: string | null;
+  action: string;
+  status: "pending" | "approved";
+  nullifier: string | null;
+  at: string;
 };
 
 export type Submission = {

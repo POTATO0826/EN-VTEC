@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AlertTriangleIcon, ArrowLeftIcon, ExternalLinkIcon } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Step, type StepState } from "@/components/ui/step";
 import {
@@ -14,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import type { Track } from "@/lib/catalog";
 import { useSessionId, useSessionStatus } from "@/lib/session";
 
@@ -156,18 +156,6 @@ export default function TrackView({ track }: { track: Track }) {
 
 /* -------------------------------------------------------------------------- */
 
-type ApprovalState =
-  | { kind: "idle" }
-  | { kind: "starting" }
-  | { kind: "waiting"; id: string; userCode: string; url: string; interval: number }
-  | { kind: "error"; title: string; detail: string };
-
-const APPROVAL_ERRORS: Record<string, string> = {
-  agents_not_configured: "World ID for Agents isn't set up on the server yet.",
-  agents_unavailable: "Couldn't reach World ID for Agents.",
-  no_seat: "Claim your World ID seat on Get started first.",
-};
-
 function AgentApproval({
   sessionId,
   trackId,
@@ -177,96 +165,25 @@ function AgentApproval({
   trackId: string;
   onApproved: () => void;
 }) {
-  const [state, setState] = React.useState<ApprovalState>({ kind: "idle" });
-
-  const start = async () => {
-    setState({ kind: "starting" });
-    const res = await fetch("/api/approval/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, trackId }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setState({
-        kind: "error",
-        title: APPROVAL_ERRORS[data.error] ?? "Couldn't start the approval",
-        detail: data.missing ? `Missing in .env.local: ${data.missing.join(", ")}` : (data.detail ?? ""),
-      });
-      return;
-    }
-    setState({
-      kind: "waiting",
-      id: data.id,
-      userCode: data.userCode,
-      url: data.verificationUriComplete ?? data.verificationUri,
-      interval: data.interval,
-    });
-  };
-
-  // Poll at the interval the issuer asked for until the human decides.
-  React.useEffect(() => {
-    if (state.kind !== "waiting") return;
-    const timer = setInterval(async () => {
-      const res = await fetch("/api/approval/poll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: state.id }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data.status === "approved") {
-        clearInterval(timer);
-        setState({ kind: "idle" });
-        onApproved();
-      } else if (data.status === "denied" || data.status === "expired") {
-        clearInterval(timer);
-        setState({
-          kind: "error",
-          title: data.status === "denied" ? "Not approved" : "The code expired",
-          detail: data.detail ?? "Start a new approval to try again.",
-        });
-      }
-    }, Math.max(state.interval, 2) * 1000);
-    return () => clearInterval(timer);
-  }, [state, onApproved]);
-
   return (
     <div className="flex flex-col gap-4">
       <p className="max-w-xl text-sm text-muted-foreground">
-        Your agent can't submit on its own. A human has to approve each submission in World App, so a rogue or hijacked
-        agent can't spend your stake.
+        Your agent can't submit on its own. You approve each submission with World ID, and that approval works for one
+        submission to this track only, so a rogue or hijacked agent can't submit in your name.
       </p>
-
-      {state.kind === "error" ? (
-        <Alert variant="warning">
-          <AlertTriangleIcon />
-          <AlertTitle>{state.title}</AlertTitle>
-          {state.detail ? <AlertDescription>{state.detail}</AlertDescription> : null}
-        </Alert>
-      ) : null}
-
-      {state.kind === "waiting" ? (
-        <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-black/30 p-4">
-          <span className="text-sm text-muted-foreground">Open the link and approve with World App. Your code:</span>
-          <span className="vtec-num text-2xl tracking-[0.2em]">{state.userCode}</span>
-          <a
-            href={state.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex w-fit items-center gap-1.5 text-sm underline-offset-4 hover:underline"
-          >
-            Approve in World <ExternalLinkIcon className="size-3.5" />
-          </a>
-          <span className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--warning)]" />
-            Waiting for approval…
-          </span>
-        </div>
-      ) : (
-        <Button onClick={start} disabled={state.kind === "starting"} className="w-fit rounded-full px-5">
-          {state.kind === "starting" ? "Starting…" : "Approve with World ID"}
-        </Button>
-      )}
+      <WorldIdButton
+        label="Approve with World ID"
+        sessionId={sessionId}
+        start={() => postJson("/api/approval/start", { sessionId, trackId })}
+        confirm={(proof, request) =>
+          postJson("/api/approval/confirm", {
+            approvalId: request.approvalId,
+            sessionId,
+            idkitResponse: proof,
+          })
+        }
+        onDone={onApproved}
+      />
     </div>
   );
 }

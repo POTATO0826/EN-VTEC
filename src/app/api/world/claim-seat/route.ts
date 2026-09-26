@@ -1,10 +1,10 @@
 import type { IDKitResult } from "@worldcoin/idkit";
-import { hashSignal } from "@worldcoin/idkit-core/hashing";
 import { update } from "@/lib/server/store";
-import { idkit, missingIdkitEnv } from "@/lib/server/world";
+import { idkit, missingIdkitEnv, verifyProof } from "@/lib/server/world";
 
-// Verifies the World ID proof with the Developer Portal, then gives this
-// session a tuner seat. Only the portal's answer is trusted, never the client.
+// Verifies the World ID proof, then gives this session a tuner seat.
+// The session id is the signal, so a proof made for one session can't be
+// replayed to claim a seat for another.
 export async function POST(request: Request) {
   const missing = missingIdkitEnv();
   if (missing.length > 0) {
@@ -19,42 +19,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "missing_fields" }, { status: 400 });
   }
 
-  // The session id is the signal, so a proof made for one session can't be
-  // replayed to claim a seat for another.
-  const expected = hashSignal(body.sessionId);
-  const responses = "responses" in body.idkitResponse ? body.idkitResponse.responses : [];
-  const bound = responses.every(
-    (item) => !("signal_hash" in item) || item.signal_hash === expected,
-  );
-  if (!bound) return Response.json({ error: "signal_mismatch" }, { status: 400 });
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (idkit.environment !== "production" && idkit.stagingToken) {
-    headers["x-staging-verification-token"] = idkit.stagingToken;
-  }
-  const res = await fetch(`https://developer.world.org/api/v4/verify/${idkit.rpId}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body.idkitResponse),
-  });
-  const verdict = (await res.json().catch(() => ({}))) as {
-    success?: boolean;
-    nullifier?: string;
-    action?: string;
-    code?: string;
-    detail?: string;
-  };
-  if (!res.ok || !verdict.success || !verdict.nullifier) {
+  const verdict = await verifyProof(body.idkitResponse, idkit.seatAction, body.sessionId);
+  if (!verdict.ok) {
     return Response.json(
-      { error: "verification_failed", code: verdict.code ?? `http_${res.status}`, detail: verdict.detail ?? null },
-      { status: 400 },
+      { error: verdict.error, code: verdict.code, detail: verdict.detail },
+      { status: verdict.status },
     );
   }
-  if (verdict.action && verdict.action !== idkit.action) {
-    return Response.json({ error: "wrong_action" }, { status: 400 });
-  }
 
-  const nullifier = verdict.nullifier;
+  const { nullifier } = verdict;
   const sessionId = body.sessionId;
   const result = await update((data) => {
     const existing = data.seats.find((s) => s.nullifier === nullifier);

@@ -5,7 +5,7 @@ Tuned local agents for Web3 workloads. Verified by World ID, published with ENSv
 ## Pages
 
 - **Get started** (`/`): pick hardware → pick a task (ZK proving) → World ID (IDKit) → pair the local agent
-- **Tuners** (`/tuners`): tracks → World ID for Agents approval → agent runs + SHA-256 → stake → leaderboard
+- **Tuners** (`/tuners`): tracks → human approves the submission with World ID → agent runs + SHA-256 → stake → leaderboard
 
 ## Run it
 
@@ -27,6 +27,6 @@ bun agent/vtec-agent.ts submit <CODE> --track video-1080p-2min --build ./my-buil
 | Where | Product | How |
 |---|---|---|
 | Get started | IDKit `@worldcoin/idkit` 4.3 | Proof of Human, signal = session id, verified at `developer.world.org/api/v4/verify` |
-| Tuners → submit | World ID for Agents | OIDC device flow against `sandbox.auth.world.org`, id_token checked against its JWKS |
+| Tuners → submit | Human in the loop (IDKit) | One action per submission, `vtec-submit:<track>:<approval id>`, verified with World and usable once |
 
 State is kept in `.data/vtec.json` for now.

@@ -7,7 +7,7 @@ import { CheckIcon, CopyIcon, CpuIcon, MonitorIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageTitle, Step, type StepState } from "@/components/ui/step";
-import WorldIdVerify from "@/components/world/WorldIdVerify";
+import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import { TASKS } from "@/lib/catalog";
 import { detectFromBrowser, type Device } from "@/lib/detect";
 import { useSessionId, useSessionStatus } from "@/lib/session";
@@ -111,7 +111,13 @@ export default function GetStarted() {
             One person gets one tuner seat. World ID proves you're a unique human without telling us who you are.
           </p>
           {sessionId ? (
-            <WorldIdVerify sessionId={sessionId} onVerified={refresh} />
+            <WorldIdButton
+              label="Verify with World ID"
+              sessionId={sessionId}
+              start={() => postJson("/api/world/rp-signature", {})}
+              confirm={(proof) => postJson("/api/world/claim-seat", { sessionId, idkitResponse: proof })}
+              onDone={refresh}
+            />
           ) : null}
         </Step>
 

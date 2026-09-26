@@ -1,15 +1,21 @@
 import "server-only";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import type { IDKitResult } from "@worldcoin/idkit";
+import { hashSignal } from "@worldcoin/idkit-core/hashing";
+import { signRequest } from "@worldcoin/idkit-core/signing";
 
-/* ---------------------------------------------------------------------------
- * World IDKit (Proof of Human, one seat per person)
- * ------------------------------------------------------------------------- */
+/**
+ * World ID via IDKit, used for two things:
+ *  - claiming a tuner seat (one per human), action `claim-tuner-seat`
+ *  - approving each agent submission (human in the loop), action
+ *    `vtec-submit:<track>:<approval id>`, so every proof is bound to exactly
+ *    one submission and can't be reused for another.
+ */
 
 export const idkit = {
   appId: process.env.NEXT_PUBLIC_WLD_APP_ID ?? "",
   rpId: process.env.WLD_RP_ID ?? "",
   signingKey: process.env.RP_SIGNING_KEY ?? "",
-  action: process.env.NEXT_PUBLIC_WLD_ACTION ?? "claim-tuner-seat",
+  seatAction: process.env.NEXT_PUBLIC_WLD_ACTION ?? "claim-tuner-seat",
   // "staging" works with the World ID simulator instead of a real Orb.
   environment: (process.env.WLD_ENVIRONMENT ?? "staging") as "production" | "staging",
   // Staging proofs are only accepted while a 24h staging window is open for the
@@ -25,118 +31,82 @@ export function missingIdkitEnv(): string[] {
   return missing;
 }
 
-/* ---------------------------------------------------------------------------
- * World ID for Agents (OIDC device flow)
- *
- * The local agent can't be trusted to act alone, so every submission needs a
- * human to approve it in World App. The device flow fits that exactly: we get a
- * short code, the human approves it on their phone, and we poll for the token.
- * No redirect URL, so it works from localhost too.
- * ------------------------------------------------------------------------- */
-
-export const agents = {
-  issuer: process.env.WA_ISSUER ?? "https://sandbox.auth.world.org",
-  clientId: process.env.WA_CLIENT_ID ?? "",
-  clientSecret: process.env.WA_CLIENT_SECRET ?? "",
-};
-
-export function missingAgentsEnv(): string[] {
-  const missing: string[] = [];
-  if (!agents.clientId) missing.push("WA_CLIENT_ID");
-  if (!agents.clientSecret) missing.push("WA_CLIENT_SECRET");
-  return missing;
-}
-
-type Discovery = {
-  issuer: string;
-  device_authorization_endpoint: string;
-  token_endpoint: string;
-  jwks_uri: string;
-};
-
-let discovery: Promise<Discovery> | null = null;
-function discover() {
-  discovery ??= fetch(`${agents.issuer}/.well-known/openid-configuration`).then(
-    async (res) => {
-      if (!res.ok) throw new Error(`OIDC discovery failed: ${res.status}`);
-      return (await res.json()) as Discovery;
-    },
-  );
-  return discovery;
-}
-
-function basicAuth() {
-  return "Basic " + Buffer.from(`${agents.clientId}:${agents.clientSecret}`).toString("base64");
-}
-
-export async function startDeviceFlow() {
-  const meta = await discover();
-  const res = await fetch(meta.device_authorization_endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: basicAuth(),
-    },
-    body: new URLSearchParams({ client_id: agents.clientId, scope: "openid" }),
+/** What the browser needs to open the IDKit widget for one action. */
+export function signedRequest(action: string, actionDescription?: string) {
+  const { sig, nonce, createdAt, expiresAt } = signRequest({
+    signingKeyHex: idkit.signingKey,
+    action,
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body.error_description ?? body.error ?? `device_authorization ${res.status}`);
-  }
-  return body as {
-    device_code: string;
-    user_code: string;
-    verification_uri: string;
-    verification_uri_complete?: string;
-    expires_in: number;
-    interval?: number;
+  return {
+    app_id: idkit.appId,
+    action,
+    action_description: actionDescription,
+    environment: idkit.environment,
+    rp_context: {
+      rp_id: idkit.rpId,
+      nonce,
+      created_at: createdAt,
+      expires_at: expiresAt,
+      signature: sig,
+    },
   };
 }
 
-export type PollResult =
-  | { status: "pending" }
-  | { status: "slow_down" }
-  | { status: "denied" | "expired"; detail: string }
-  | { status: "approved"; sub: string };
+export type Verdict =
+  | { ok: true; nullifier: string }
+  | { ok: false; status: number; error: string; code?: string; detail?: string };
 
-export async function pollDeviceFlow(deviceCode: string): Promise<PollResult> {
-  const meta = await discover();
-  const res = await fetch(meta.token_endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: basicAuth(),
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      device_code: deviceCode,
-      client_id: agents.clientId,
-    }),
-  });
-  const body = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    switch (body.error) {
-      case "authorization_pending":
-        return { status: "pending" };
-      case "slow_down":
-        return { status: "slow_down" };
-      case "access_denied":
-        return { status: "denied", detail: "The request was declined in World App." };
-      case "expired_token":
-        return { status: "expired", detail: "The code expired before it was approved." };
-      default:
-        return { status: "denied", detail: body.error_description ?? body.error ?? `token ${res.status}` };
-    }
+/**
+ * Checks a proof end to end: it must be for `action`, its signal must be
+ * `signal`, and World's Developer Portal must accept it. Only the portal's
+ * answer is trusted, never anything the client claims.
+ */
+export async function verifyProof(
+  proof: IDKitResult,
+  action: string,
+  signal: string,
+): Promise<Verdict> {
+  if (!("action" in proof) || proof.action !== action) {
+    return { ok: false, status: 400, error: "wrong_action" };
   }
 
-  // Never trust the token just because it came back: check signature, issuer,
-  // audience and expiry against the issuer's published keys.
-  const jwks = createRemoteJWKSet(new URL(meta.jwks_uri));
-  const { payload } = await jwtVerify(body.id_token as string, jwks, {
-    issuer: meta.issuer,
-    audience: agents.clientId,
+  const expected = hashSignal(signal);
+  const responses = "responses" in proof ? proof.responses : [];
+  const bound = responses.every((item) => !("signal_hash" in item) || item.signal_hash === expected);
+  if (!bound) return { ok: false, status: 400, error: "signal_mismatch" };
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (idkit.environment !== "production" && idkit.stagingToken) {
+    headers["x-staging-verification-token"] = idkit.stagingToken;
+  }
+  const res = await fetch(`https://developer.world.org/api/v4/verify/${idkit.rpId}`, {
+    method: "POST",
+    headers,
+    // Pin the environment we run in, so a client can't slip a test proof into
+    // a production deployment.
+    body: JSON.stringify({ ...proof, environment: idkit.environment }),
+    signal: AbortSignal.timeout(10_000),
   });
-  if (!payload.sub) return { status: "denied", detail: "Token had no subject." };
-  return { status: "approved", sub: payload.sub };
+  const verdict = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    nullifier?: string;
+    action?: string;
+    code?: string;
+    detail?: string;
+  };
+
+  if (!res.ok || !verdict.success || !verdict.nullifier) {
+    return {
+      ok: false,
+      status: 400,
+      error: "verification_failed",
+      code: verdict.code ?? `http_${res.status}`,
+      detail: verdict.detail,
+    };
+  }
+  if (verdict.action && verdict.action !== action) {
+    return { ok: false, status: 400, error: "wrong_action" };
+  }
+  // Same number can arrive as 0x01 or 0x1; normalise before using it as a key.
+  return { ok: true, nullifier: "0x" + BigInt(verdict.nullifier).toString(16) };
 }

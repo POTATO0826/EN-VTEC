@@ -11,39 +11,50 @@ import { AlertTriangleIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
-type SignedRequest = {
+export type SignedRequest = {
   app_id: `app_${string}`;
   action: string;
+  action_description?: string;
   environment: "production" | "staging";
   rp_context: RpContext;
+  [extra: string]: unknown;
 };
 
 const ERRORS: Record<string, string> = {
   world_not_configured: "World ID isn't set up on the server yet.",
   seat_taken: "This World ID already holds a tuner seat.",
   signal_mismatch: "The proof was made for a different session. Try again.",
+  wrong_action: "The proof was made for a different request. Try again.",
   verification_failed: "World rejected the proof.",
+  no_seat: "Claim your World ID seat on Get started first.",
 };
 
 /**
- * IDKit Proof of Human. The session id is the signal, so the proof only
- * counts for this browser session; the server checks it with World.
+ * One World ID check (IDKit, Proof of Human). The server signs the request
+ * (`start`), the widget collects the proof, and `confirm` sends it back to the
+ * server, which verifies it with World. The session id is always the signal.
  */
-export default function WorldIdVerify({
+export default function WorldIdButton({
+  label,
   sessionId,
-  onVerified,
+  start,
+  confirm,
+  onDone,
 }: {
+  label: string;
   sessionId: string;
-  onVerified: () => void;
+  start: () => Promise<Response>;
+  confirm: (proof: IDKitResult, request: SignedRequest) => Promise<Response>;
+  onDone: () => void;
 }) {
   const [request, setRequest] = React.useState<SignedRequest | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<{ title: string; detail: string } | null>(null);
 
-  const start = async () => {
+  const open = async () => {
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/world/rp-signature", { method: "POST" });
+    const res = await start();
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
@@ -57,12 +68,8 @@ export default function WorldIdVerify({
   };
 
   // Runs inside the widget: throwing makes World's UI show the failure.
-  const verify = async (result: IDKitResult) => {
-    const res = await fetch("/api/world/claim-seat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, idkitResponse: result }),
-    });
+  const verify = async (proof: IDKitResult) => {
+    const res = await confirm(proof, request!);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError({
@@ -71,7 +78,7 @@ export default function WorldIdVerify({
       });
       throw new Error(data.error ?? "verification_failed");
     }
-    onVerified();
+    onDone();
   };
 
   return (
@@ -84,16 +91,17 @@ export default function WorldIdVerify({
         </Alert>
       ) : null}
 
-      <Button onClick={start} disabled={busy} className="w-fit rounded-full px-5">
-        {busy ? "Preparing…" : "Verify with World ID"}
+      <Button onClick={open} disabled={busy} className="w-fit rounded-full px-5">
+        {busy ? "Preparing…" : label}
       </Button>
 
       {request ? (
         <IDKitRequestWidget
           open
-          onOpenChange={(open) => !open && setRequest(null)}
+          onOpenChange={(isOpen) => !isOpen && setRequest(null)}
           app_id={request.app_id}
           action={request.action}
+          action_description={request.action_description}
           environment={request.environment}
           rp_context={request.rp_context}
           allow_legacy_proofs
@@ -104,4 +112,12 @@ export default function WorldIdVerify({
       ) : null}
     </div>
   );
+}
+
+export function postJson(url: string, body: unknown) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
