@@ -56,7 +56,26 @@ function flag(name: string) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-const URL_BASE = (flag("url") ?? process.env.VTEC_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
+/**
+ * Which server a pairing code belongs to, saved by `pair`. Later commands
+ * with that code (submit, verify) go to the same server without --url, so a
+ * code paired on the deployed site never lands on a local server by mistake.
+ */
+const SERVERS = path.join(os.homedir(), ".vtec", "servers.json");
+function savedServers(): Record<string, string> {
+  try {
+    return JSON.parse(readFileSync(SERVERS, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+const URL_BASE = (
+  flag("url") ??
+  process.env.VTEC_URL ??
+  (code ? savedServers()[code.toUpperCase()] : undefined) ??
+  "http://127.0.0.1:3000"
+).replace(/\/$/, "");
 
 function fail(message: string): never {
   console.error(`✗ ${message}`);
@@ -224,7 +243,7 @@ function combinations(params: Record<string, (string | number)[]>) {
  * the fastest correct one. Different runs explore different variants, so each
  * submission is new code.
  */
-function autotune(track: string, tune: TuneConfig, say: (line: string) => void = console.log) {
+function autotune(track: string, tune: TuneConfig, say: (line: string) => void = console.log): { dir: string; speedup: number } {
   const trackDir = path.join(REPO, "tracks", track);
   const template = readFileSync(path.join(trackDir, tune.template), "utf8");
   const cfg = trackConfig(track);
@@ -280,7 +299,36 @@ function autotune(track: string, tune: TuneConfig, say: (line: string) => void =
   if (!winner) fail("No variant produced the right output. Nothing to submit.");
   rmSync(baseOut, { force: true });
   say(`• best: ${winner.label}, ${(base.ms / winner.ms).toFixed(2)}× on this GPU (verifiers will re-check)`);
-  return winner.dir;
+  return { dir: winner.dir, speedup: base.ms / winner.ms };
+}
+
+/**
+ * The tuner's speedup claim, measured the way a verifier measures: one warm-up
+ * pair, then `runs` pairs on fresh seeds, alternating which goes first.
+ */
+function measureClaim(track: string, build: string, run: string, runs: number) {
+  const baselineDir = path.join(REPO, "tracks", track, "baseline");
+  const baselineRun = manifestOf(baselineDir).run!;
+  runOnce(baselineDir, baselineRun, "0");
+  runOnce(build, run, "0");
+  const base: number[] = [];
+  const cand: number[] = [];
+  for (let i = 0; i < Math.max(1, runs); i++) {
+    const seed = String(randomBytes(2).readUInt16BE() % 360);
+    if (i % 2 === 0) {
+      base.push(runOnce(baselineDir, baselineRun, seed).ms);
+      cand.push(runOnce(build, run, seed).ms);
+    } else {
+      cand.push(runOnce(build, run, seed).ms);
+      base.push(runOnce(baselineDir, baselineRun, seed).ms);
+    }
+  }
+  const b = median(base);
+  return {
+    speedup: Math.round((b / median(cand)) * 1000) / 1000,
+    noisePct: Math.round(((Math.max(...base) - Math.min(...base)) / b) * 1000) / 10,
+    runs: base.length,
+  };
 }
 
 /**
@@ -305,6 +353,9 @@ function tensorError(a: string, b: string) {
   const err = Number(check.stdout.trim());
   return check.status === 0 && Number.isFinite(err) ? err : Infinity;
 }
+
+/** Minimum allowance, in %, between a tuner's claimed speedup and what a verifier must measure. */
+const CLAIM_ALLOWANCE_PCT = 5;
 
 function median(values: number[]) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -332,7 +383,8 @@ async function call(route: string, body?: unknown) {
 
 async function post(route: string, body: unknown) {
   const { ok, status, data } = await call(route, body);
-  if (!ok) fail(String(data.detail ?? data.error ?? `HTTP ${status}`));
+  // Name the server: a code paired on another server fails here as "unknown".
+  if (!ok) fail(`${String(data.detail ?? data.error ?? `HTTP ${status}`)} (server: ${URL_BASE})`);
   return data;
 }
 
@@ -345,7 +397,9 @@ async function pair() {
   const gpus = detectGpus();
   const info = { code, hostname: os.hostname(), os: `${os.type()} ${os.release()}`, cpu: cpuName(), gpus };
   await post("/api/agent/hello", info);
-  console.log(`✓ Paired ${info.hostname}`);
+  mkdirSync(path.dirname(SERVERS), { recursive: true });
+  writeFileSync(SERVERS, JSON.stringify({ ...savedServers(), [code.toUpperCase()]: URL_BASE }, null, 2));
+  console.log(`✓ Paired ${info.hostname} with ${URL_BASE}`);
   for (const gpu of gpus) {
     console.log(`  GPU  ${gpu.name}${gpu.memoryMb ? ` · ${gpu.memoryMb} MB` : ""}${gpu.driver ? ` · driver ${gpu.driver}` : ""}`);
   }
@@ -371,7 +425,7 @@ async function submit() {
     console.log(line);
     log.push(line);
   };
-  const build = choice ? path.resolve(choice) : autotune(track, tune!, say);
+  const build = choice ? path.resolve(choice) : autotune(track, tune!, say).dir;
   if (!existsSync(build)) fail(`Build folder not found: ${build}`);
   if (build === path.resolve(REPO, "tracks", track, "baseline")) {
     fail(
@@ -396,6 +450,14 @@ async function submit() {
   say(`• output sha256 ${resultSha256}`);
   say(`• time   ${(ms / 1000).toFixed(3)} s`);
 
+  // The claim: how much faster than the baseline, measured exactly the way
+  // verifiers measure (warm-up, then alternating pairs on fresh seeds, median),
+  // so it isn't inflated by a cold first run. Verifiers must measure at least
+  // this, give or take run-to-run noise.
+  const claim = measureClaim(track, build, run, Number(flag("claim-runs") ?? 3));
+  say(`• claim  ${claim.speedup}× the baseline (median of ${claim.runs} runs, noise ±${claim.noisePct}%) · verifiers must measure at least this`);
+  if (claim.speedup <= 1) fail("It isn't faster than the baseline here, so there's nothing to claim.");
+
   const data = await post("/api/agent/submit", {
     code,
     trackId: track,
@@ -406,6 +468,7 @@ async function submit() {
     requires: manifest.requires ?? {},
     files,
     log,
+    claim: { ...claim, gpu: detectGpus()[0]?.name ?? cpuName() },
   });
   console.log(`✓ Submitted ${data.id}: pending verification. It reaches the ranking once verifiers agree.`);
   console.log(`  Watch it run: ${URL_BASE}/tuners/${track}#run_${data.id}`);
@@ -415,7 +478,15 @@ type Job = {
   assignmentId: string;
   status: "approved" | "committed";
   revealOpen: boolean;
-  submission: { id: string; trackId: string; buildName: string; buildSha256: string; requires: Requirements };
+  submission: {
+    id: string;
+    trackId: string;
+    buildName: string;
+    buildSha256: string;
+    requires: Requirements;
+    /** The tuner's measured speedup; null for submissions made before claims existed. */
+    claim?: { speedup: number; noisePct: number; runs: number; gpu: string } | null;
+  };
 };
 
 async function verifyOne(job: Job, runs: number) {
@@ -508,11 +579,28 @@ async function verifyOne(job: Job, runs: number) {
     const noisePct = ((Math.max(...base) - Math.min(...base)) / baselineMedianMs) * 100;
     const speedup = baselineMedianMs / candidateMedianMs;
     const gainPct = (speedup - 1) * 100;
-    // Faster means clearly faster: at least 3%, more than twice the noise, and
+    // Faster means clearly faster: at least 0.1%, more than twice the noise, and
     // even the slowest candidate run beats the fastest baseline run. The same
     // code on both sides can't pass this.
     const separated = Math.max(...cand) < Math.min(...base);
-    const pass = hashMatches && correct && gainPct >= 3 && gainPct > 2 * noisePct && separated;
+    // Same rule as src/lib/rules.ts: at least 0.1% faster, and clearly beyond the noise.
+    const MIN_GAIN_PCT = 0.1;
+    // The tuner's claim must hold: at least the claimed speedup, less an
+    // allowance for measurement drift. Run-to-run noise within one session
+    // understates it: the same kernel on the same GPU measured minutes apart
+    // differs by a few percent (clocks, temperature). So the allowance is the
+    // measured noise (the larger of the tuner's and ours), but at least 5%.
+    let claimCheck: { ok: boolean; claimedSpeedup: number; required: number; tunerGpu: string } | null = null;
+    if (sub.claim) {
+      const margin = Math.max(CLAIM_ALLOWANCE_PCT, noisePct, sub.claim.noisePct) / 100;
+      const required = Math.round(sub.claim.speedup * (1 - margin) * 1000) / 1000;
+      claimCheck = { ok: speedup >= required, claimedSpeedup: sub.claim.speedup, required, tunerGpu: sub.claim.gpu };
+      console.log(
+        `  tuner claimed ${sub.claim.speedup}× on ${sub.claim.gpu}; measured ${Math.round(speedup * 1000) / 1000}× (needs ≥ ${required}×) → ${claimCheck.ok ? "claim holds" : "CLAIM NOT MET"}`,
+      );
+    }
+    const pass =
+      hashMatches && correct && (claimCheck?.ok ?? true) && gainPct >= MIN_GAIN_PCT && gainPct > 2 * noisePct && separated;
 
     report = {
       compatible: true, hardware, hashMatches, correct, runs,
@@ -528,6 +616,7 @@ async function verifyOne(job: Job, runs: number) {
       warmupCandidateMs: Math.round(warmCand),
       maxError: track.compare === "tensor" ? (Number.isFinite(maxError) ? maxError : null) : null,
       tolerance,
+      claimCheck,
     };
     console.log(`  correct ${correct ? "yes" : "NO"} · speedup ${report.speedup}× · noise ±${report.noisePct}% → ${pass ? "PASS" : "FAIL"}`);
   }

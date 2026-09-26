@@ -12,13 +12,12 @@ import SlushConnect from "@/components/sui/SlushConnect";
 import { PageTitle, Step, type StepState } from "@/components/ui/step";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import { TASKS } from "@/lib/catalog";
-import { SUI } from "@/lib/sui-tx";
 import { detectFromBrowser, type Device } from "@/lib/detect";
 import { useSessionId, useSessionStatus } from "@/lib/session";
 
 const CHOICES_KEY = "vtec.choices";
 
-type Choices = { device: Device | null; taskId: string | null };
+type Choices = { device: Device | null; taskId: string | null; skipWorldId?: boolean };
 
 function useChoices() {
   const [choices, setChoices] = React.useState<Choices>({ device: null, taskId: null });
@@ -50,7 +49,8 @@ export default function GetStarted() {
   const done = {
     1: !!choices.device,
     2: !!choices.taskId,
-    3: !!status?.seat && !!status?.humanPass,
+    // World ID is optional (without it, the tuner page asks for a stake instead of the fee).
+    3: (!!status?.seat && !!status?.humanPass) || !!choices.skipWorldId,
     4: !!status?.agent,
   };
   const firstOpen = ([1, 2, 3, 4] as const).find((n) => !done[n]) ?? null;
@@ -64,7 +64,7 @@ export default function GetStarted() {
     <>
       <PageTitle
         title="Get started"
-        subtitle="Pick your hardware and a task, prove you're human with a World ID Selfie Check, then run the Opti-om agent on your laptop."
+        subtitle="Pick your hardware and a task, optionally prove you're human with World ID, then run the Opti-om agent on your laptop."
       />
 
       <div className="flex flex-col gap-3">
@@ -103,15 +103,29 @@ export default function GetStarted() {
 
         <Step
           n={3}
-          title="Verify you're human (World ID → Sui)"
+          title="Verify you're human with World ID (optional)"
           state={stateOf(3)}
           summary={
             status?.seat ? (
               <span className="vtec-num">HumanPass · seat {status.seat.nullifier.slice(0, 10)}…</span>
+            ) : choices.skipWorldId ? (
+              <EditLink onClick={edit(3)}>Skipped</EditLink>
             ) : null
           }
         >
           {sessionId ? <HumanPassSteps sessionId={sessionId} onDone={refresh} /> : null}
+          {!status?.seat ? (
+            <Button
+              variant="outline"
+              className="mt-4 rounded-full"
+              onClick={() => {
+                setChoices({ ...choices, skipWorldId: true });
+                setEditing(null);
+              }}
+            >
+              Skip World ID
+            </Button>
+          ) : null}
         </Step>
 
         <Step
@@ -129,7 +143,8 @@ export default function GetStarted() {
           <div>
             <p className="font-medium">You're set up.</p>
             <p className="text-sm text-muted-foreground">
-              {status?.agent?.gpus[0]?.name ?? choices.device?.name} · {task?.name} · verified human
+              {status?.agent?.gpus[0]?.name ?? choices.device?.name} · {task?.name} ·{" "}
+              {status?.seat ? "verified human" : "not verified"}
             </p>
           </div>
           <Button asChild className="rounded-full px-5">

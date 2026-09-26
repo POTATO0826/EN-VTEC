@@ -31,7 +31,5 @@ __pycache__/
 # Move build output
 move/*/build/
 
-# Vercel project link
-.vercel
 
 .vercel

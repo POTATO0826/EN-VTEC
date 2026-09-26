@@ -1,15 +1,11 @@
 import { findTrack } from "@/lib/catalog";
 import { load, update } from "@/lib/server/store";
-import { missingIdkitEnv, signedRequest } from "@/lib/server/world";
 
-// Permission for one agent submission: first a World ID approval (a real
-// person says yes to this one submission), then the process fee.
+// Permission for one agent submission by a World ID-verified tuner. No second
+// World ID check here: the seat proved the person at Get started (and minted
+// their HumanPass), so the approval is backed by that seat and paying the
+// process fee in Slush is the consent. It works once, for this track only.
 export async function POST(request: Request) {
-  const missing = missingIdkitEnv();
-  if (missing.length > 0) {
-    return Response.json({ error: "world_not_configured", missing }, { status: 503 });
-  }
-
   const body = (await request.json().catch(() => null)) as {
     sessionId?: string;
     trackId?: string;
@@ -20,28 +16,29 @@ export async function POST(request: Request) {
   }
 
   const data = await load();
-  if (!data.seats.some((s) => s.sessionId === body.sessionId)) {
-    return Response.json({ error: "no_seat" }, { status: 403 });
-  }
+  const seat = data.seats.find((s) => s.sessionId === body.sessionId);
+  if (!seat) return Response.json({ error: "no_seat" }, { status: 403 });
+
+  // Reuse an unpaid approval rather than piling up new ones on every click.
+  const used = new Set(data.submissions.map((s) => s.approvalId));
+  const open = data.approvals.find(
+    (a) => a.sessionId === body.sessionId && a.trackId === track.id && a.kind === "worldid" && !a.fee && !used.has(a.id),
+  );
+  if (open) return Response.json({ approvalId: open.id });
 
   const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-  const action = `vtec-submit:${track.id}:${id}`;
   await update((d) => {
     d.approvals.push({
       id,
       sessionId: body.sessionId!,
       trackId: track.id,
       kind: "worldid",
-      action,
-      status: "pending",
-      nullifier: null,
+      action: "",
+      status: "approved",
+      nullifier: seat.nullifier,
       fee: null,
       at: new Date().toISOString(),
     });
   });
-
-  return Response.json({
-    approvalId: id,
-    ...signedRequest(action, `Let my Opti-om agent submit one build to ${track.name}`),
-  });
+  return Response.json({ approvalId: id });
 }

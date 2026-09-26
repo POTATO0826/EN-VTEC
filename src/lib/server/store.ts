@@ -34,12 +34,23 @@ export type Approval = {
   id: string;
   sessionId: string;
   trackId: string;
-  kind: "worldid";
+  /** "worldid": World ID approval + process fee. "stake": no World ID, a stake instead. */
+  kind: "worldid" | "stake";
   action: string;
   status: "pending" | "approved";
   nullifier: string | null;
   /** The process fee, paid after the World ID approval. */
   fee: { digest: string; payer: string; amountMist: string } | null;
+  /**
+   * Without World ID: the stake sent to the platform wallet. Returned if the
+   * kernel verifies (correct and at least 0.1% faster), slashed otherwise.
+   */
+  stake?: {
+    digest: string;
+    payer: string;
+    amountMist: string;
+    settled?: { outcome: "refunded" | "slashed"; digest: string | null; at: string };
+  } | null;
   at: string;
 };
 
@@ -74,10 +85,14 @@ export type Submission = {
   harness?: boolean;
   /** Where the process fee went once verification ended. */
   feeSettlement?: { digest: string; recipients: string[] } | null;
+  /** The tuner's speedup claim, which verifiers must meet. */
+  claim?: Claim | null;
   /** What the tuner's agent printed while building and submitting it: the auto-tune run, hashes, timing. */
   tuneLog?: string[];
   /** On sale once verified: the shared Listing on Sui. */
   listing?: { id: string; digest: string; lineage: string; royalties?: string } | null;
+  /** Last time finishSettled() retried this one's stake settlement or listing. */
+  retryAt?: string;
   at: string;
   settledAt: string | null;
 };
@@ -86,6 +101,18 @@ export type Verifier = {
   sessionId: string;
   joinedAt: string;
   reputation: number;
+};
+
+/**
+ * What the tuner claims: how much faster than the baseline, measured the way
+ * verifiers measure. Verifiers must measure at least this (give or take noise).
+ */
+export type Claim = {
+  speedup: number;
+  /** Run-to-run noise of the tuner's baseline runs, in %. */
+  noisePct: number;
+  runs: number;
+  gpu: string;
 };
 
 export type VerifyReport = {
@@ -109,6 +136,8 @@ export type VerifyReport = {
   /** Largest |candidate − baseline| over every run's output; null when the track has no tensor check. */
   maxError?: number | null;
   tolerance?: number;
+  /** Did this verifier measure at least the tuner's claim (less noise)? null: no claim (older submission). */
+  claimCheck?: { ok: boolean; claimedSpeedup: number; required: number; tunerGpu: string } | null;
 };
 
 export type Assignment = {

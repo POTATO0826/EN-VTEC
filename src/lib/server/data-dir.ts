@@ -10,7 +10,8 @@ import path from "node:path";
  */
 const BUNDLED = path.join(process.cwd(), ".data");
 
-export const DATA_DIR = process.env.VERCEL ? "/tmp/opti-om-data" : BUNDLED;
+// OPTI_OM_DATA_DIR: a separate folder, e.g. for a test copy of the app.
+export const DATA_DIR = process.env.OPTI_OM_DATA_DIR ?? (process.env.VERCEL ? "/tmp/opti-om-data" : BUNDLED);
 
 if (process.env.VERCEL && !existsSync(DATA_DIR)) {
   mkdirSync(DATA_DIR, { recursive: true });

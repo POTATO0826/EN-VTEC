@@ -1,4 +1,5 @@
 import "server-only";
+import { MIN_GAIN_PCT } from "@/lib/rules";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { findTrack } from "@/lib/catalog";
@@ -100,6 +101,11 @@ function linesFromReport(sub: Submission, r: VerifyReport): string[] {
     );
   }
   if (!n) out.push(`  ${r.runs} seeded runs · baseline median ${(r.baselineMedianMs / 1000).toFixed(2)} s · candidate median ${(r.candidateMedianMs / 1000).toFixed(2)} s`);
+  if (r.claimCheck) {
+    out.push(
+      `  tuner claimed ${r.claimCheck.claimedSpeedup}× on ${r.claimCheck.tunerGpu}; measured ${r.speedup}× (needs ≥ ${r.claimCheck.required}×) → ${r.claimCheck.ok ? "claim holds" : "CLAIM NOT MET"}`,
+    );
+  }
   out.push(`  correct ${r.correct ? "yes" : "NO"} · speedup ${r.speedup}× · noise ±${r.noisePct}% → ${r.pass ? "PASS" : "FAIL"}`);
   out.push("  committed, then revealed once every verifier had committed.");
   return out;
@@ -119,7 +125,16 @@ function checksOf(r: VerifyReport, lines: string[], tolerance: number): Check[] 
         ? `matches the baseline within ${tolerance} on every seed${r.maxError != null ? ` (largest difference ${r.maxError.toExponential(1)})` : ""}`
         : "different output from the baseline on at least one seed",
     },
-    { label: "At least 3% faster", ok: gain >= 3, detail: `${gain.toFixed(1)}% faster by median time` },
+    ...(r.claimCheck
+      ? [
+          {
+            label: "At least the tuner's claim",
+            ok: r.claimCheck.ok,
+            detail: `tuner claimed ${r.claimCheck.claimedSpeedup}× on ${r.claimCheck.tunerGpu}; this verifier measured ${r.speedup}× (needs at least ${r.claimCheck.required}×: the claim less at least 5% for measurement drift)`,
+          },
+        ]
+      : []),
+    { label: `At least ${MIN_GAIN_PCT}% faster`, ok: gain >= MIN_GAIN_PCT, detail: `${gain.toFixed(2)}% faster by median time` },
     { label: "Beyond the noise", ok: gain > 2 * r.noisePct, detail: `${gain.toFixed(1)}% gain vs ±${r.noisePct}% run-to-run noise (needs more than twice it)` },
   ];
   if (runs) {

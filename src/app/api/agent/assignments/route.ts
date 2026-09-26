@@ -25,6 +25,7 @@ export async function GET(request: Request) {
           buildSha256: sub.buildSha256,
           resultSha256: sub.resultSha256,
           requires: sub.requires,
+          claim: sub.claim ?? null,
         },
       };
     });

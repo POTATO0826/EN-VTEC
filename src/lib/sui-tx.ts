@@ -10,6 +10,8 @@ export const SUI = {
   marketId: process.env.NEXT_PUBLIC_SUI_MARKET_ID ?? "",
   licenseSui: Number(process.env.NEXT_PUBLIC_LICENSE_SUI ?? "0.1"),
   feeSui: Number(process.env.NEXT_PUBLIC_FEE_SUI ?? "0.01"),
+  /** What a tuner without World ID stakes per kernel. */
+  stakeSui: Number(process.env.NEXT_PUBLIC_STAKE_SUI ?? "0.0001"),
 };
 
 export const suiReady = () => !!(SUI.packageId && SUI.vaultId);
@@ -44,21 +46,29 @@ export function feeTx(approvalId: string, humanPassId: string) {
 }
 
 /**
+ * The stake for publishing without World ID: SUI_STAKE from the tuner's
+ * wallet to the platform wallet, which returns it if the kernel verifies.
+ */
+export function stakeTx(to: string) {
+  const tx = new Transaction();
+  tx.transferObjects([pay(tx, SUI.stakeSui)], to);
+  return tx;
+}
+
+/**
  * Buys a verified kernel in ONE transaction: pay, split 70/20/10 to tuner,
  * lineage and platform, and mint a non-transferable License to the buyer.
  */
-export function buyTx(listingId: string, royaltiesId: string) {
+export function buyTx(listingId: string, royaltiesId?: string) {
   const tx = new Transaction();
   const price = pay(tx, SUI.licenseSui);
   tx.moveCall({
     target: `${SUI.packageId}::market::buy`,
-    arguments: [
-      tx.object(listingId),
-      tx.object(SUI.marketId),
-      tx.object(royaltiesId),
-      price,
-      tx.object("0x6"),
-    ],
+    // Listings made by the deployed contract before royalty recovery have no
+    // Challenge object, and their buy takes one argument fewer.
+    arguments: royaltiesId
+      ? [tx.object(listingId), tx.object(SUI.marketId), tx.object(royaltiesId), price, tx.object("0x6")]
+      : [tx.object(listingId), tx.object(SUI.marketId), price, tx.object("0x6")],
   });
   return tx;
 }
