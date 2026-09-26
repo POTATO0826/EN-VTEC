@@ -40,6 +40,15 @@ export type SessionStatus = {
     gpus: { name: string; memoryMb: number | null; driver: string | null }[];
     lastSeen: string;
   } | null;
+  /** Approved with World ID but not yet submitted; `paid` = fee paid too. */
+  approval: { id: string; trackId: string; paid: boolean } | null;
+  submission: {
+    id: string;
+    trackId: string;
+    track: string;
+    status: "pending" | "verifying" | "verified" | "rejected";
+    at: string;
+  } | null;
 };
 
 /** Polls the server for seat + agent state. */

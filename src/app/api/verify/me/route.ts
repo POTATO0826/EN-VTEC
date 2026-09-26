@@ -1,4 +1,5 @@
 import { findTrack } from "@/lib/catalog";
+import { PLATFORM_SESSION, harnessRunning } from "@/lib/server/harness";
 import { load } from "@/lib/server/store";
 import { kick, POOL_SIZE, QUORUM, revealOpen } from "@/lib/server/verification";
 
@@ -40,7 +41,26 @@ export async function GET(request: Request) {
     })
     .reverse();
 
+  // What the platform harness has been doing, newest first.
+  const harnessJobs = data.assignments
+    .filter((a) => a.sessionId === PLATFORM_SESSION)
+    .slice(-6)
+    .reverse()
+    .map((a) => {
+      const sub = data.submissions.find((s) => s.id === a.submissionId);
+      return {
+        submissionId: a.submissionId,
+        trackId: sub?.trackId ?? "",
+        track: findTrack(sub?.trackId ?? "")?.name ?? "",
+        buildName: sub?.buildName ?? "",
+        status: a.status,
+        speedup: a.report?.speedup ?? null,
+        pass: a.report?.pass ?? null,
+      };
+    });
+
   return Response.json({
+    harness: { running: harnessRunning(), jobs: harnessJobs },
     poolSize: data.verifiers.length,
     config: { poolSize: POOL_SIZE, quorum: QUORUM },
     verifier: verifier ? { reputation: verifier.reputation, joinedAt: verifier.joinedAt } : null,

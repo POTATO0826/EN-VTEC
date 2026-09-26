@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { Step, type StepState } from "@/components/ui/step";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import SlushConnect from "@/components/sui/SlushConnect";
+import SubmissionDetail, { useSubmission } from "@/components/tuners/SubmissionDetail";
 import WorldIdButton, { postJson } from "@/components/world/WorldIdButton";
 import type { Track } from "@/lib/catalog";
 import { useSessionId, useSessionStatus } from "@/lib/session";
@@ -65,12 +67,28 @@ export default function TrackView({ track }: { track: Track }) {
     if (seen.current) {
       for (const row of mine) {
         if (!seen.current.has(row.id)) {
-          toast.success("Submission received", { description: "Pending verification by independent verifiers." });
+          toast.success("Submission received", {
+            description: "Verifiers are re-running it now.",
+            action: { label: "Watch", onClick: () => setOpenId(row.id) },
+          });
         }
       }
     }
     seen.current = new Set(mine.map((r) => r.id));
   }, [data]);
+
+  // Submission timeline dialog; /tuners/<track>#<submission id> opens it directly.
+  const [openId, setOpenId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const fromHash = () => {
+      const id = window.location.hash.slice(1);
+      if (id.startsWith("sub_")) setOpenId(id);
+    };
+    fromHash();
+    window.addEventListener("hashchange", fromHash);
+    return () => window.removeEventListener("hashchange", fromHash);
+  }, []);
+  const detail = useSubmission(openId, sessionId);
 
   const hasAgent = !!status?.agent;
   const verified = !!data?.verified;
@@ -148,7 +166,7 @@ export default function TrackView({ track }: { track: Track }) {
                 Kernel Code Efficiency Ranking <ArrowUpRightIcon className="size-3.5" />
               </Link>
             </div>
-            <Submissions rows={data?.rows ?? []} />
+            <Submissions rows={data?.rows ?? []} onOpen={setOpenId} />
           </section>
         </div>
 
@@ -163,7 +181,10 @@ export default function TrackView({ track }: { track: Track }) {
               ))}
               <div>
                 <dt className="text-muted-foreground">Verified when</dt>
-                <dd>3 of 5 verifiers see the same output, faster by &gt;1% and beyond their noise</dd>
+                <dd>
+                  Verifiers get the same output on random inputs, and it&apos;s faster than the baseline by more than 1%
+                  and beyond their noise. 3 of 5 must agree; while the pool is small, the platform harness stands in.
+                </dd>
               </div>
             </dl>
           </Card>
@@ -175,6 +196,23 @@ export default function TrackView({ track }: { track: Track }) {
           </Card>
         </aside>
       </div>
+
+      <Dialog
+        open={!!openId}
+        onOpenChange={(open) => {
+          if (open) return;
+          setOpenId(null);
+          if (window.location.hash) history.replaceState(null, "", window.location.pathname);
+        }}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-border bg-card sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>What happened to this submission</DialogTitle>
+            <DialogDescription>Every step, with the evidence. Updates live.</DialogDescription>
+          </DialogHeader>
+          {detail ? <SubmissionDetail detail={detail} /> : <div className="h-40 animate-pulse rounded-lg bg-muted/30" />}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -186,7 +224,7 @@ function WorldApproval({ sessionId, trackId, onDone }: { sessionId: string; trac
     <div className="flex flex-col gap-4">
       <Explainer icon={<ScanFaceIcon />}>
         Your agent can&apos;t submit on its own. You approve each submission with World ID, and the approval works once, for
-        this track only. Verified humans don&apos;t stake.
+        this track only.
       </Explainer>
       <WorldIdButton
         label="Approve with World ID"
@@ -257,7 +295,7 @@ function FeePayment({ sessionId, approvalId, onDone }: { sessionId: string; appr
   );
 }
 
-function Submissions({ rows }: { rows: Row[] }) {
+function Submissions({ rows, onOpen }: { rows: Row[]; onOpen: (id: string) => void }) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center text-sm text-muted-foreground">
@@ -275,11 +313,16 @@ function Submissions({ rows }: { rows: Row[] }) {
             <TableHead>Verifiers</TableHead>
             <TableHead className="text-right">Speedup</TableHead>
             <TableHead>Code SHA-256</TableHead>
+            <TableHead />
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={row.id} className={row.mine ? "bg-accent/30" : undefined}>
+            <TableRow
+              key={row.id}
+              onClick={() => onOpen(row.id)}
+              className={`cursor-pointer transition-colors hover:bg-accent/50 ${row.mine ? "bg-accent/30" : ""}`}
+            >
               <TableCell>
                 <StatusBadge status={row.status} />
               </TableCell>
@@ -290,7 +333,7 @@ function Submissions({ rows }: { rows: Row[] }) {
                   {row.mine ? " · you" : ""}
                 </span>
               </TableCell>
-              <TableCell className="vtec-num text-sm text-muted-foreground">
+              <TableCell className="text-sm text-muted-foreground">
                 {row.legacy
                   ? "old, not verifiable"
                   : row.verifiers.assigned === 0
@@ -300,6 +343,7 @@ function Submissions({ rows }: { rows: Row[] }) {
               </TableCell>
               <TableCell className="vtec-num text-right">{row.speedup ? `${row.speedup.toFixed(2)}×` : "—"}</TableCell>
               <TableCell className="vtec-num text-muted-foreground">{row.buildSha256.slice(0, 12)}…</TableCell>
+              <TableCell className="text-right text-xs whitespace-nowrap text-muted-foreground">Details →</TableCell>
             </TableRow>
           ))}
         </TableBody>

@@ -46,6 +46,18 @@ type Assignment = {
 };
 
 type Me = {
+  harness: {
+    running: boolean;
+    jobs: {
+      submissionId: string;
+      trackId: string;
+      track: string;
+      buildName: string;
+      status: string;
+      speedup: number | null;
+      pass: boolean | null;
+    }[];
+  };
   poolSize: number;
   config: { poolSize: number; quorum: number };
   verifier: { reputation: number; joinedAt: string } | null;
@@ -53,10 +65,10 @@ type Me = {
 };
 
 const HOW = [
-  { icon: <DicesIcon />, title: "Drawn at random", text: "Each submission gets 5 verifiers, picked with Sui's on-chain randomness." },
+  { icon: <DicesIcon />, title: "Drawn at random", text: "Up to 5 verifiers per submission, picked with Sui's on-chain randomness." },
   { icon: <ScanFaceIcon />, title: "Approve with World ID", text: "A fresh World ID check for every job, so each verifier is one real person." },
   { icon: <LaptopIcon />, title: "Your agent runs it", text: "Checks your hardware can run it, then times baseline vs candidate on your laptop." },
-  { icon: <EyeOffIcon />, title: "Commit, then reveal", text: "Results stay hidden until all verifiers commit. 3 of 5 must agree." },
+  { icon: <EyeOffIcon />, title: "Commit, then reveal", text: "Results stay hidden until all verifiers commit, then the majority decides. Each earns a share of the fee." },
 ];
 
 export default function VerifyView() {
@@ -134,6 +146,46 @@ export default function VerifyView() {
           </Button>
         )}
       </section>
+
+      {me && me.harness.jobs.length > 0 ? (
+        <section className="mb-8 flex flex-col gap-3">
+          <h2 className="flex items-center gap-2 text-sm tracking-[0.18em] text-muted-foreground uppercase">
+            Platform harness
+            {me.harness.running ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] tracking-normal text-[var(--warning)] normal-case">
+                <span className="size-1.5 animate-pulse rounded-full bg-[var(--warning)]" /> running now
+              </span>
+            ) : null}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            While the pool is small, the platform runs the same verifier agent on its own machine.
+          </p>
+          <div className="overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
+            {me.harness.jobs.map((job) => (
+              <Link
+                key={job.submissionId}
+                href={`/tuners/${job.trackId}#${job.submissionId}`}
+                className="flex items-center justify-between gap-4 border-b border-border/40 px-4 py-3 text-sm text-foreground transition-colors last:border-0 hover:bg-accent/40 hover:text-foreground"
+              >
+                <span>
+                  {job.track} · <span className="text-muted-foreground">{job.buildName}</span>
+                </span>
+                <span
+                  className={
+                    job.pass === null
+                      ? "text-muted-foreground"
+                      : job.pass
+                        ? "vtec-num text-[var(--success)]"
+                        : "vtec-num text-[var(--danger)]"
+                  }
+                >
+                  {job.speedup !== null ? `${job.speedup.toFixed(2)}× ${job.pass ? "pass" : "fail"}` : "running…"}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {me?.verifier ? (
         <section className="flex flex-col gap-3">
