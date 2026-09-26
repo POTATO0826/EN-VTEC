@@ -41,7 +41,7 @@ export function runHarness() {
   const url = process.env.VTEC_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
   const child = spawn(
     "bun",
-    [path.join(root, "agent", "vtec-agent.ts"), "verify", PLATFORM_CODE, "--runs", process.env.HARNESS_RUNS ?? "3", "--url", url],
+    [path.join(root, "agent", "vtec-agent.ts"), "verify", PLATFORM_CODE, "--runs", process.env.HARNESS_RUNS ?? "4", "--url", url],
     { cwd: root, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
   );
   child.stdout.pipe(log, { end: false });

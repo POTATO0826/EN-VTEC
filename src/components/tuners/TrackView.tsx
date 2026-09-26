@@ -182,8 +182,8 @@ export default function TrackView({ track }: { track: Track }) {
               <div>
                 <dt className="text-muted-foreground">Verified when</dt>
                 <dd>
-                  Verifiers get the same output on random inputs, and it&apos;s faster than the baseline by more than 1%
-                  and beyond their noise. 3 of 5 must agree; while the pool is small, the platform harness stands in.
+                  Verifiers get the same output on random inputs, and every run beats the baseline by at least 3%
+                  and well beyond their noise. 3 of 5 must agree; while the pool is small, the platform harness stands in.
                 </dd>
               </div>
             </dl>

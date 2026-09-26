@@ -198,7 +198,8 @@ export async function tally(submissionId: string, revealedId?: string) {
 
   // The process fee pays the verifiers who actually ran the check, whatever
   // they found. The platform harness's share goes to the platform wallet.
-  if (approval?.fee && adminReady()) {
+  // (Skipped if already paid out, e.g. when a submission is re-verified.)
+  if (approval?.fee && !sub.feeSettlement && adminReady()) {
     const ran = assigned.filter((a) => a.report?.compatible);
     try {
       const fresh = await load();

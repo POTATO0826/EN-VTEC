@@ -9,9 +9,10 @@ function reason(r: VerifyReport) {
   if (!r.hashMatches) return "The downloaded code didn't match the submitted hash.";
   if (!r.correct) return "Different output from the baseline on the same inputs, so it isn't correct.";
   const gain = (r.speedup - 1) * 100;
-  if (gain <= 1) return `${r.speedup.toFixed(2)}× means not faster than the baseline (needs more than 1%).`;
-  if (gain <= r.noisePct) return `${r.speedup.toFixed(2)}× is inside this machine's noise (±${r.noisePct}%), so it isn't proven.`;
-  return `${r.speedup.toFixed(2)}× faster, beyond the noise (±${r.noisePct}%).`;
+  if (r.pass) return `${r.speedup.toFixed(2)}× faster: every run beat the baseline, well beyond the noise (±${r.noisePct}%).`;
+  if (gain < 3) return `${r.speedup.toFixed(2)}× means no real speedup over the baseline (needs at least 3%).`;
+  if (gain <= 2 * r.noisePct) return `${r.speedup.toFixed(2)}× is too close to this machine's noise (±${r.noisePct}%) to be proven.`;
+  return `${r.speedup.toFixed(2)}× on average, but some runs were no faster than the baseline, so it isn't proven.`;
 }
 
 // Everything that happened to one submission, in order, with the evidence.

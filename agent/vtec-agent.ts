@@ -387,8 +387,16 @@ async function verifyOne(job: Job, runs: number) {
       const seed = String(randomBytes(2).readUInt16BE() % 360);
       rmSync(baseOut, { force: true });
       rmSync(candOut, { force: true });
-      const b = runOnce(baselineDir, baselineRun, seed, baseOut);
-      const c = runOnce(dir, candidateRun, seed, candOut);
+      // Alternate who goes first: the second run of a pair tends to be a bit
+      // faster (warm GPU, cached kernels), so a fixed order would favour one side.
+      let b, c;
+      if (i % 2 === 0) {
+        b = runOnce(baselineDir, baselineRun, seed, baseOut);
+        c = runOnce(dir, candidateRun, seed, candOut);
+      } else {
+        c = runOnce(dir, candidateRun, seed, candOut);
+        b = runOnce(baselineDir, baselineRun, seed, baseOut);
+      }
       base.push(b.ms);
       cand.push(c.ms);
       // The harness checks the output files itself; it never trusts what a build prints.
@@ -414,7 +422,11 @@ async function verifyOne(job: Job, runs: number) {
     const noisePct = ((Math.max(...base) - Math.min(...base)) / baselineMedianMs) * 100;
     const speedup = baselineMedianMs / candidateMedianMs;
     const gainPct = (speedup - 1) * 100;
-    const pass = hashMatches && correct && gainPct > 1 && gainPct > noisePct;
+    // Faster means clearly faster: at least 3%, more than twice the noise, and
+    // even the slowest candidate run beats the fastest baseline run. The same
+    // code on both sides can't pass this.
+    const separated = Math.max(...cand) < Math.min(...base);
+    const pass = hashMatches && correct && gainPct >= 3 && gainPct > 2 * noisePct && separated;
 
     report = {
       compatible: true, hardware, hashMatches, correct, runs,
@@ -455,7 +467,7 @@ async function revealWhenOpen(assignmentId: string, timeoutMs: number) {
 
 async function verify() {
   if (!code) fail("Usage: vtec-agent verify <CODE> [--runs 5]");
-  const runs = Math.max(3, Number(flag("runs") ?? 5));
+  const runs = Math.max(4, Number(flag("runs") ?? 6));
   const { ok, data } = await call(`/api/agent/assignments?code=${code}`);
   if (!ok) fail(String(data.detail ?? data.error));
   const jobs = (data.jobs as Job[]).filter((j) => j.status === "approved");
