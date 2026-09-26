@@ -19,7 +19,8 @@ Local agent (from the project folder):
 
 ```bash
 bun agent/vtec-agent.ts pair <CODE>
-bun agent/vtec-agent.ts submit <CODE> --track video-1080p-2min --build ./my-build --run "<command>"
+bun agent/vtec-agent.ts submit <CODE> --track video-1080p-2min          # baseline build
+bun agent/vtec-agent.ts submit <CODE> --track video-1080p-2min --build tracks/video-1080p-2min/fast-preset
 ```
 
 ## World ID

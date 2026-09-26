@@ -1,0 +1,4 @@
+{
+  "name": "tuned CPU (x264 veryfast)",
+  "run": "bun render.ts"
+}

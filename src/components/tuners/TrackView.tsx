@@ -110,9 +110,12 @@ export default function TrackView({ track }: { track: Track }) {
                 The agent hashes your build with SHA-256, runs it, hashes the output and submits both.
               </p>
               <code className="vtec-num block overflow-x-auto rounded-lg border border-border/70 bg-black/40 px-4 py-3 text-sm whitespace-nowrap">
-                bun agent/vtec-agent.ts submit {status?.agent?.code ?? "<CODE>"} --track {track.id} --build ./my-build --run
-                &quot;&lt;your benchmark command&gt;&quot;
+                bun agent/vtec-agent.ts submit {status?.agent?.code ?? "<CODE>"} --track {track.id}
               </code>
+              <p className="mt-2 text-xs text-muted-foreground">
+                That runs the baseline build in <span className="vtec-num">tracks/{track.id}/baseline</span>. To submit your own
+                build, add <span className="vtec-num">--build &lt;folder&gt;</span> (the folder&apos;s vtec.json says how to run it).
+              </p>
               <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                 <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--warning)]" />
                 Waiting for the result…

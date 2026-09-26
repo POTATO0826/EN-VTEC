@@ -1,0 +1,4 @@
+{
+  "name": "NVENC (GPU encoder, needs NVIDIA driver 570+)",
+  "run": "bun render.ts"
+}

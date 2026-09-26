@@ -1,0 +1,4 @@
+{
+  "name": "baseline (JS, single thread)",
+  "run": "bun namehash.ts"
+}

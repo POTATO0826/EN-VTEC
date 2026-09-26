@@ -6,15 +6,16 @@
  *       Reads this machine's GPU/CPU and pairs with the browser session that
  *       showed <CODE> on the Get started page.
  *
- *   bun agent/vtec-agent.ts submit <CODE> --track <id> --build <dir> --run "<command>"
- *       Hashes the build (SHA-256), runs the benchmark command, hashes its
- *       output, and submits. Needs a World ID for Agents approval first.
+ *   bun agent/vtec-agent.ts submit <CODE> --track <id> [--build <dir>] [--run "<command>"]
+ *       Hashes the build (SHA-256), runs it, hashes its output, and submits.
+ *       --build defaults to tracks/<id>/baseline. --run defaults to the "run"
+ *       command in the build's vtec.json. Needs a World ID approval first.
  *
  * Options: --url <app url>  (default http://127.0.0.1:3000, or VTEC_URL)
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -132,11 +133,22 @@ async function pair() {
 
 async function submit() {
   const track = flag("track");
-  const build = flag("build");
-  const run = flag("run");
-  if (!code || !track || !build || !run) {
-    fail('Usage: vtec-agent submit <CODE> --track <id> --build <dir> --run "<command>"');
+  if (!code || !track) fail("Usage: vtec-agent submit <CODE> --track <id> [--build <dir>] [--run \"<command>\"]");
+
+  // Default build: the track's baseline, shipped in this repo.
+  const repo = path.resolve(import.meta.dir, "..");
+  const build = flag("build") ?? path.join(repo, "tracks", track, "baseline");
+  if (!existsSync(build)) fail(`Build folder not found: ${build}`);
+
+  // Default command: whatever the build says in its vtec.json.
+  let run = flag("run");
+  const manifest = path.join(build, "vtec.json");
+  if (!run && existsSync(manifest)) {
+    const meta = JSON.parse(readFileSync(manifest, "utf8")) as { name?: string; run?: string };
+    run = meta.run;
+    if (meta.name) console.log(`• build  ${meta.name}`);
   }
+  if (!run) fail(`No --run given and no "run" in ${manifest}`);
 
   const buildSha256 = hashDir(path.resolve(build));
   console.log(`• build  sha256 ${buildSha256}`);
@@ -144,7 +156,10 @@ async function submit() {
   const started = performance.now();
   const result = spawnSync(run, { shell: true, cwd: path.resolve(build), encoding: "buffer" });
   const seconds = (performance.now() - started) / 1000;
-  if (result.status !== 0) fail(`Benchmark failed (exit ${result.status}).`);
+  if (result.status !== 0) {
+    process.stderr.write(result.stderr);
+    fail(`Benchmark failed (exit ${result.status}).`);
+  }
 
   const resultSha256 = createHash("sha256").update(result.stdout).digest("hex");
   console.log(`• result sha256 ${resultSha256}`);
