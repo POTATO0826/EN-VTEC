@@ -147,12 +147,12 @@ export default function ModelView({ model, initialWorkload }: { model: Model; in
             data-spin="-0.12"
           />
 
-          {/* Top left: the model and its summary. Stays while a workload is open on wide screens. */}
+          {/* Top left: the model and its summary. Fades out while a workload is zoomed in, so it never covers an orb. */}
           <div
-            className="pointer-events-none absolute top-6 left-4 max-w-[400px] transition-opacity duration-400 md:left-8"
-            style={{ opacity: entry && narrow ? 0 : 1 }}
+            className={`absolute top-6 left-4 max-w-[400px] transition-opacity duration-400 md:left-8 ${entry ? "pointer-events-none" : ""}`}
+            style={{ opacity: entry ? 0 : 1 }}
           >
-            <Link href="/models" className="pointer-events-auto mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <Link href="/models" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
               <ArrowLeftIcon className="size-3.5" /> All models
             </Link>
             <h6 className="m-0 mb-2 text-xs tracking-[0.18em] text-muted-foreground uppercase">
@@ -160,7 +160,7 @@ export default function ModelView({ model, initialWorkload }: { model: Model; in
             </h6>
             <h1 className="m-0 mb-3 font-display text-[40px] leading-[1.05] font-extrabold tracking-[-0.02em] text-pretty">{model.name}</h1>
             <p className="m-0 mb-4 text-[15px] text-pretty text-muted-foreground">{model.summary}</p>
-            <dl className="pointer-events-auto m-0 mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-border/60 bg-card/60 p-3 text-xs backdrop-blur-sm">
+            <dl className="m-0 mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-border/60 bg-card/60 p-3 text-xs backdrop-blur-sm">
               <dt className="text-muted-foreground">Weights</dt>
               <dd className="vtec-num">
                 {model.quant} · {model.sizeGb} GB
@@ -177,7 +177,7 @@ export default function ModelView({ model, initialWorkload }: { model: Model; in
               </dd>
             </dl>
             {/* What each orb colour means, in plain words. */}
-            <dl className="pointer-events-auto m-0 flex flex-col gap-1.5 rounded-lg border border-border/60 bg-card/60 p-3 text-xs backdrop-blur-sm">
+            <dl className="m-0 flex flex-col gap-1.5 rounded-lg border border-border/60 bg-card/60 p-3 text-xs backdrop-blur-sm">
               {LEGEND.map(([status, title, meaning]) => (
                 <div key={status} className="flex items-baseline gap-2">
                   <dt className="inline-flex items-center gap-1.5 whitespace-nowrap">

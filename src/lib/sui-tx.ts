@@ -1,6 +1,6 @@
 "use client";
 
-import { coinWithBalance, Transaction } from "@mysten/sui/transactions";
+import { Transaction } from "@mysten/sui/transactions";
 
 /** Public Sui config baked in at build time. */
 export const SUI = {
@@ -15,6 +15,13 @@ export const SUI = {
 export const suiReady = () => !!(SUI.packageId && SUI.vaultId);
 
 const toMist = (sui: number) => BigInt(Math.round(sui * 1e9));
+
+/**
+ * A coin of exactly `sui`, split from the gas coin. Every wallet can sign
+ * this. (coinWithBalance would draw on the wallet's address balance instead
+ * when it has one, through a FundsWithdrawal input that Slush rejects.)
+ */
+const pay = (tx: Transaction, sui: number) => tx.splitCoins(tx.gas, [toMist(sui)])[0];
 const keyBytes = (id: string) => Array.from(new TextEncoder().encode(id));
 
 /**
@@ -23,13 +30,14 @@ const keyBytes = (id: string) => Array.from(new TextEncoder().encode(id));
  */
 export function feeTx(approvalId: string, humanPassId: string) {
   const tx = new Transaction();
+  const fee = pay(tx, SUI.feeSui);
   tx.moveCall({
     target: `${SUI.packageId}::vault::pay_fee`,
     arguments: [
       tx.object(SUI.vaultId),
       tx.object(humanPassId),
       tx.pure.vector("u8", keyBytes(approvalId)),
-      coinWithBalance({ balance: toMist(SUI.feeSui) }),
+      fee,
     ],
   });
   return tx;
@@ -41,12 +49,13 @@ export function feeTx(approvalId: string, humanPassId: string) {
  */
 export function buyTx(listingId: string) {
   const tx = new Transaction();
+  const price = pay(tx, SUI.licenseSui);
   tx.moveCall({
     target: `${SUI.packageId}::market::buy`,
     arguments: [
       tx.object(listingId),
       tx.object(SUI.marketId),
-      coinWithBalance({ balance: toMist(SUI.licenseSui) }),
+      price,
       tx.object("0x6"),
     ],
   });
