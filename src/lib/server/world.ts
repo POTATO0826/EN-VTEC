@@ -36,7 +36,7 @@ export const idkit = {
   // doesn't collide with seats claimed before HumanPass existed.
   seatAction: process.env.WLD_PASS_ACTION ?? "vtec-humanpass",
   // "staging" works with the World ID simulator instead of a real Orb.
-  environment: (process.env.WLD_ENVIRONMENT ?? "staging") as "production" | "staging",
+  environment: (process.env.WLD_ENVIRONMENT ?? "staging") as "production" | "staging" | "sandbox",
   // Staging proofs are only accepted while a 24h staging window is open for the
   // app, and must carry the token that window issued.
   stagingToken: process.env.WLD_STAGING_TOKEN ?? "",

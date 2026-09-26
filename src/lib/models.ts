@@ -332,7 +332,7 @@ export type KernelRow = {
   speedup: number;
   verifiers: { passed: number; total: number };
   harness: boolean;
-  listing: { id: string; digest: string; lineage: string } | null;
+  listing: { id: string; digest: string; lineage: string; royalties?: string } | null;
   status: "verified" | "rejected" | "verifying";
   submittedAt: string;
   /** True for generated rows; false for a verified submission from the store. */

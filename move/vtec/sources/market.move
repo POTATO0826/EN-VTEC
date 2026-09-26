@@ -3,8 +3,8 @@
 ///   take the payment -> split it to tuner, lineage and platform ->
 ///   mint a License to the buyer (challenge, kernel version, expiry).
 ///
-/// Prices and payees live in a Listing the platform creates once a kernel is
-/// verified, so a buyer can't choose who gets paid or how much.
+/// Prices live in Listing; payout destinations live in its shared Challenge.
+/// A buyer cannot substitute another Challenge or choose the payout split.
 ///
 /// License has `key` but not `store`, and this module never transfers one
 /// except to the buyer inside `buy`. In Sui Move that makes it
@@ -17,10 +17,12 @@ use sui::coin::Coin;
 use sui::event;
 use sui::sui::SUI;
 use vtec::admin::AdminCap;
+use vtec::royalty::{Self, Challenge};
 
 const EWrongPrice: u64 = 0;
 const ENotListed: u64 = 1;
 const EBadSplit: u64 = 2;
+const EWrongChallenge: u64 = 3;
 
 const BPS: u64 = 10_000;
 
@@ -48,6 +50,7 @@ public struct Listing has key {
     lineage: address,
     price: u64,
     active: bool,
+    royalties: ID,
 }
 
 public struct License has key {
@@ -59,7 +62,7 @@ public struct License has key {
     expires_ms: u64,
 }
 
-public struct Listed has copy, drop { listing: ID, challenge: vector<u8>, kernel: vector<u8>, tuner: address, price: u64 }
+public struct Listed has copy, drop { listing: ID, challenge: vector<u8>, kernel: vector<u8>, tuner: address, price: u64, royalties: ID }
 public struct LicenseBought has copy, drop {
     listing: ID,
     license: ID,
@@ -91,11 +94,14 @@ public fun list(
     version: vector<u8>,
     tuner: address,
     lineage: address,
+    tuner_identity: address,
+    lineage_identity: address,
     price: u64,
     ctx: &mut TxContext,
 ) {
-    let listing = Listing { id: object::new(ctx), challenge, kernel, version, tuner, lineage, price, active: true };
-    event::emit(Listed { listing: object::id(&listing), challenge, kernel, tuner, price });
+    let royalties = royalty::create(challenge, kernel, tuner_identity, tuner, lineage_identity, lineage, ctx);
+    let listing = Listing { id: object::new(ctx), challenge, kernel, version, tuner, lineage, price, active: true, royalties };
+    event::emit(Listed { listing: object::id(&listing), challenge, kernel, tuner, price, royalties });
     transfer::share_object(listing);
 }
 
@@ -105,14 +111,16 @@ public fun retire(_: &AdminCap, listing: &mut Listing) {
 }
 
 public fun set_split(_: &AdminCap, market: &mut Market, tuner_bps: u64, lineage_bps: u64) {
-    assert!(tuner_bps + lineage_bps <= BPS, EBadSplit);
+    // Existing certificates promise this split; it cannot be changed underneath them.
+    assert!(tuner_bps == 7_000 && lineage_bps == 2_000, EBadSplit);
     market.tuner_bps = tuner_bps;
     market.lineage_bps = lineage_bps;
 }
 
 /// Pay, split, and mint the license, all at once.
-public fun buy(listing: &Listing, market: &Market, mut payment: Coin<SUI>, clock: &Clock, ctx: &mut TxContext) {
+public fun buy(listing: &Listing, market: &Market, royalties: &Challenge, mut payment: Coin<SUI>, clock: &Clock, ctx: &mut TxContext) {
     assert!(listing.active, ENotListed);
+    assert!(listing.royalties == object::id(royalties), EWrongChallenge);
     let price = payment.value();
     assert!(price == listing.price, EWrongPrice);
 
@@ -120,8 +128,7 @@ public fun buy(listing: &Listing, market: &Market, mut payment: Coin<SUI>, clock
     let to_lineage = price * market.lineage_bps / BPS;
     let to_platform = price - to_tuner - to_lineage;
 
-    transfer::public_transfer(payment.split(to_tuner, ctx), listing.tuner);
-    transfer::public_transfer(payment.split(to_lineage, ctx), listing.lineage);
+    royalty::pay(royalties, &mut payment, price, ctx);
     transfer::public_transfer(payment, market.platform);
 
     let expires_ms = clock.timestamp_ms() + market.license_ms;

@@ -76,7 +76,7 @@ export type Submission = {
   /** What the tuner's agent printed while building and submitting it: the auto-tune run, hashes, timing. */
   tuneLog?: string[];
   /** On sale once verified: the shared Listing on Sui. */
-  listing?: { id: string; digest: string; lineage: string } | null;
+  listing?: { id: string; digest: string; lineage: string; royalties?: string } | null;
   at: string;
   settledAt: string | null;
 };

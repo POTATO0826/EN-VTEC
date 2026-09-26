@@ -8,6 +8,7 @@ use sui::test_scenario::{Self as ts, Scenario};
 use vtec::admin::{Self, AdminCap};
 use vtec::human::{Self, HumanPass, Humans};
 use vtec::market::{Self, License, Listing, Market};
+use vtec::royalty::Challenge;
 use vtec::vault::{Self, Vault};
 
 const ADMIN: address = @0xA;
@@ -153,7 +154,7 @@ fun stake_then_release_returns_funds() {
 fun list_kernel(s: &mut Scenario, price: u64) {
     s.next_tx(ADMIN);
     let cap = s.take_from_sender<AdminCap>();
-    market::list(&cap, b"rmsnorm-4096", b"sub_1", b"sha", TUNER, @0x1E, price, s.ctx());
+    market::list(&cap, b"rmsnorm-4096", b"sub_1", b"sha", TUNER, @0x1E, TUNER, @0x1E, price, s.ctx());
     s.return_to_sender(cap);
 }
 
@@ -161,11 +162,13 @@ fun buy_as(s: &mut Scenario, buyer: address, amount: u64) {
     s.next_tx(buyer);
     let listing = s.take_shared<Listing>();
     let m = s.take_shared<Market>();
+    let royalties = s.take_shared<Challenge>();
     let clk = clock::create_for_testing(s.ctx());
-    market::buy(&listing, &m, coin::mint_for_testing<SUI>(amount, s.ctx()), &clk, s.ctx());
+    market::buy(&listing, &m, &royalties, coin::mint_for_testing<SUI>(amount, s.ctx()), &clk, s.ctx());
     clk.destroy_for_testing();
     ts::return_shared(listing);
     ts::return_shared(m);
+    ts::return_shared(royalties);
 }
 
 #[test]

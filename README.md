@@ -54,6 +54,16 @@ Tests: `.tools/sui/sui.exe move test` in `move/vtec` (10 tests: fee split, Human
 
 ## World ID
 
+**Recoverable earnings:** `/earnings` lets tuners enroll a World Selfie Check
+session while their wallet is secure, then prove that same session to redirect
+future royalty payments after losing the old keys. The backend checks the saved
+session, destination-bound signal and unused proof stamp before using its Sui
+AdminCap. One PTB updates the affected Challenges, invalidates old non-transferable
+RoyaltyBadges and mints replacements. See [setup, trust model and demo](docs/earnings-recovery.md).
+
+This feature requires a fresh deployment of the updated Move package and new
+listings; existing deployed listings do not gain recovery automatically.
+
 - **IDKit 4.x, Proof of Human.** The seat claim's signal is the user's Sui address, so the proof binds World ID to that wallet. The server verifies it at `developer.world.org/api/v4/verify` and mints the HumanPass.
 - **Human in the loop for the agent.** Every submission and every verification needs its own World ID approval, with action `vtec-submit:<track>:<id>` or `vtec-verify:<submission>:<id>`, and each can be used once.
 - **Denied path.** If the user declines in World App, or has no Proof of Human, the UI says so and nothing is approved.
@@ -96,7 +106,12 @@ bun agent/vtec-agent.ts verify <CODE>
 
 ## Prizes
 
-**World: Best Use of IDKit / World ID for agents.** World ID is bound to a Sui wallet (HumanPass), and every agent action (submit, verify) needs a fresh, single-use human approval, including the denied path.
+**World.** World session continuity protects a tuner's future royalty income:
+after prior enrollment, the same World session can authorize a new payout wallet
+without the old key. Selfie Check, destination binding and replay protection gate
+an atomic AdminCap transaction that rotates royalty destinations and badges.
+The existing HumanPass registration and agent approval flows remain separate.
+See [the recovery implementation and demo](docs/earnings-recovery.md).
 
 **Sui.** Payments *and* licensing are atomic in one PTB. There is a non-transferable License and HumanPass, on-chain randomness for picking verifiers, and fees split on-chain.
 
