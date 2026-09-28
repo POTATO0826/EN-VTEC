@@ -304,7 +304,10 @@ function autotune(track: string, tune: TuneConfig, say: (line: string) => void =
 
 /**
  * The tuner's speedup claim, measured the way a verifier measures: one warm-up
- * pair, then `runs` pairs on fresh seeds, alternating which goes first.
+ * pair, then `runs` pairs on fresh seeds, alternating which goes first. The
+ * claim is a guaranteed minimum, not the typical result: the typical baseline
+ * time over the SLOWEST kernel run. The same kernel measured again later (by a
+ * verifier) drifts a few percent, so claiming the median would overstate it.
  */
 function measureClaim(track: string, build: string, run: string, runs: number) {
   const baselineDir = path.join(REPO, "tracks", track, "baseline");
@@ -325,7 +328,7 @@ function measureClaim(track: string, build: string, run: string, runs: number) {
   }
   const b = median(base);
   return {
-    speedup: Math.round((b / median(cand)) * 1000) / 1000,
+    speedup: Math.round((b / Math.max(...cand)) * 1000) / 1000,
     noisePct: Math.round(((Math.max(...base) - Math.min(...base)) / b) * 1000) / 10,
     runs: base.length,
   };
@@ -455,7 +458,7 @@ async function submit() {
   // so it isn't inflated by a cold first run. Verifiers must measure at least
   // this, give or take run-to-run noise.
   const claim = measureClaim(track, build, run, Number(flag("claim-runs") ?? 3));
-  say(`• claim  ${claim.speedup}× the baseline (median of ${claim.runs} runs, noise ±${claim.noisePct}%) · verifiers must measure at least this`);
+  say(`• claim  at least ${claim.speedup}× the baseline (slowest of ${claim.runs} runs, noise ±${claim.noisePct}%) · verifiers must measure at least this`);
   if (claim.speedup <= 1) fail("It isn't faster than the baseline here, so there's nothing to claim.");
 
   const data = await post("/api/agent/submit", {
@@ -470,6 +473,11 @@ async function submit() {
     log,
     claim: { ...claim, gpu: detectGpus()[0]?.name ?? cpuName() },
   });
+  if (data.status === "awaiting_stake") {
+    console.log(`✓ Uploaded ${data.id}. ${data.detail ?? "It waits for your stake on the track page."}`);
+    console.log(`  Stake it here: ${URL_BASE}/tuners/${track}`);
+    return;
+  }
   console.log(`✓ Submitted ${data.id}: pending verification. It reaches the ranking once verifiers agree.`);
   console.log(`  Watch it run: ${URL_BASE}/tuners/${track}#run_${data.id}`);
 }

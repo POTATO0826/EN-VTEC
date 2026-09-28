@@ -97,6 +97,12 @@ export type Evidence = {
   gpu: string;
   runtimeS: number;
   approval: { worldId: boolean; fee: { digest: string; amountSui: number } | null } | null;
+  /** Without World ID: the stake locked in the Opti-On contract, and how it was settled. */
+  stake?: {
+    amountSui: number;
+    digest: string;
+    settled: { outcome: "refunded" | "slashed"; digest: string | null; leader: boolean; verifiersPaid: number } | null;
+  } | null;
   /** Where the verifier pool was drawn from: a Sui tx digest, or "server". */
   draw: { source: string } | null;
   quorum: number;
@@ -277,13 +283,24 @@ export function buildSteps(d: Evidence, tx: (digest: string) => string): Step[] 
     detail: ["Exact code hashed and uploaded by the CLI agent.", `Build SHA-256 ${d.buildSha256}`],
   });
 
-  steps.push(
-    d.approval?.worldId
-      ? { id: "worldid", state: "done", title: "World ID approval", summary: "A verified human approved this one submission." }
-      : { id: "worldid", state: "skipped", title: "World ID approval", summary: "Skipped: made before approvals existed." },
-  );
+  if (d.stake) {
+    // Without World ID: the stake is the tuner's commitment, locked on-chain.
+    steps.push({
+      id: "stake",
+      state: "done",
+      title: `Stake locked · ${d.stake.amountSui} SUI`,
+      summary: "No World ID, so the tuner staked on this exact code hash in the Opti-On contract on Sui.",
+      link: { label: "Sui tx", href: tx(d.stake.digest) },
+    });
+  } else {
+    steps.push(
+      d.approval?.worldId
+        ? { id: "worldid", state: "done", title: "World ID approval", summary: "A verified human approved this one submission." }
+        : { id: "worldid", state: "skipped", title: "World ID approval", summary: "Skipped: made before approvals existed." },
+    );
+  }
 
-  steps.push(
+  if (!d.stake) steps.push(
     d.approval?.fee
       ? {
           id: "fee",
@@ -365,5 +382,27 @@ export function buildSteps(d: Evidence, tx: (digest: string) => string): Step[] 
     };
   }
   steps.push(outcome);
+
+  // The stake's settlement: one transaction returns it (and pays verifiers
+  // and sets #1 when those apply), or slash_stake keeps it.
+  const settled = d.stake?.settled;
+  if (settled) {
+    const extras = [
+      settled.leader ? "set as #1" : null,
+      settled.verifiersPaid ? `${settled.verifiersPaid} verifiers paid` : null,
+    ].filter(Boolean);
+    steps.push({
+      id: "stake-settled",
+      state: settled.outcome === "refunded" ? "done" : "failed",
+      title: settled.outcome === "refunded" ? "Stake returned" : "Stake slashed",
+      summary:
+        settled.outcome === "refunded"
+          ? `Returned to the tuner by the Opti-On contract${extras.length ? `, ${extras.join(" and ")}, in the same transaction` : ""}.`
+          : "Not verified, so the contract kept the stake as Opti-On fees.",
+      ...(settled.digest ? { link: { label: "Sui tx", href: tx(settled.digest) } } : {}),
+    });
+  } else if (d.stake && (d.status === "verified" || d.status === "rejected")) {
+    steps.push({ id: "stake-settled", state: "current", title: "Settling the stake", summary: "Sending the settle transaction to Sui." });
+  }
   return steps;
 }

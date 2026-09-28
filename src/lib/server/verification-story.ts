@@ -130,7 +130,7 @@ function checksOf(r: VerifyReport, lines: string[], tolerance: number): Check[] 
           {
             label: "At least the tuner's claim",
             ok: r.claimCheck.ok,
-            detail: `tuner claimed ${r.claimCheck.claimedSpeedup}× on ${r.claimCheck.tunerGpu}; this verifier measured ${r.speedup}× (needs at least ${r.claimCheck.required}×: the claim less at least 5% for measurement drift)`,
+            detail: `tuner claimed at least ${r.claimCheck.claimedSpeedup}× on ${r.claimCheck.tunerGpu}; this verifier measured ${r.speedup}× (needs at least ${r.claimCheck.required}×: the claim less at least 5% for measurement drift)`,
           },
         ]
       : []),

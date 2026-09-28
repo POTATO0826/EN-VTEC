@@ -16,6 +16,18 @@ export const SUI = {
 
 export const suiReady = () => !!(SUI.packageId && SUI.vaultId);
 
+/** The Opti-On contract (move/opti_on): one Challenge per track. */
+export const OPTI_ON = {
+  packageId: process.env.NEXT_PUBLIC_OPTI_ON_PACKAGE_ID ?? "",
+  challenges: (() => {
+    try {
+      return JSON.parse(process.env.NEXT_PUBLIC_OPTI_ON_CHALLENGES ?? "{}") as Record<string, string>;
+    } catch {
+      return {} as Record<string, string>;
+    }
+  })(),
+};
+
 const toMist = (sui: number) => BigInt(Math.round(sui * 1e9));
 
 /**
@@ -46,12 +58,17 @@ export function feeTx(approvalId: string, humanPassId: string) {
 }
 
 /**
- * The stake for publishing without World ID: SUI_STAKE from the tuner's
- * wallet to the platform wallet, which returns it if the kernel verifies.
+ * Without World ID: stake on your kernel in the Opti-On contract. The stake
+ * is locked there together with the kernel's code hash, until the backend
+ * returns it (verified) or slashes it (not).
  */
-export function stakeTx(to: string) {
+export function stakeTx(challengeId: string, codeHashHex: string) {
   const tx = new Transaction();
-  tx.transferObjects([pay(tx, SUI.stakeSui)], to);
+  const bytes = Array.from(codeHashHex.match(/../g) ?? [], (h) => parseInt(h, 16));
+  tx.moveCall({
+    target: `${OPTI_ON.packageId}::market::submit`,
+    arguments: [tx.object(challengeId), tx.pure.vector("u8", bytes), pay(tx, SUI.stakeSui)],
+  });
   return tx;
 }
 

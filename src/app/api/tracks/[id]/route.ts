@@ -59,7 +59,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
         (a) => a.sessionId === sessionId && a.trackId === id && a.status === "approved" && !used.has(a.id),
       )
     : [];
-  const ready = open.find((a) => a.fee || a.stake);
+  const ready = open.find((a) => a.fee);
   const unpaid = open.find((a) => !a.fee && a.kind === "worldid");
   const verified = sessionId ? data.seats.some((s) => s.sessionId === sessionId) : false;
 
@@ -67,8 +67,15 @@ export async function GET(request: Request, ctx: RouteContext<"/api/tracks/[id]"
     rows,
     builds: buildsOf(id),
     verified,
+    // Without World ID: this session's newest kernel that still needs its stake.
+    awaitingStake: (() => {
+      const s = data.submissions
+        .filter((x) => x.sessionId === sessionId && x.trackId === id && x.status === "awaiting_stake")
+        .sort((a, b) => b.at.localeCompare(a.at))[0];
+      return s ? { id: s.id, buildName: s.buildName, buildSha256: s.buildSha256 } : null;
+    })(),
     approval: ready
-      ? { id: ready.id, stage: "ready" as const, mode: ready.kind }
+      ? { id: ready.id, stage: "ready" as const }
       : unpaid
         ? { id: unpaid.id, stage: "needs_fee" as const }
         : null,

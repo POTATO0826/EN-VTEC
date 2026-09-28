@@ -3,7 +3,17 @@ import { createHash, randomBytes } from "node:crypto";
 import { HARNESS_ENABLED, harnessRunning, PLATFORM_CODE, PLATFORM_SESSION, runHarness } from "./harness";
 import { findTrack } from "@/lib/catalog";
 import { hasBuild, load, update, type Submission, type VerifyReport } from "./store";
-import { adminAddress, adminReady, distributeFee, drawSeed, listKernel, refundFee, refundStake } from "./sui";
+import {
+  adminAddress,
+  adminReady,
+  distributeFee,
+  drawSeed,
+  listKernel,
+  optiOnReady,
+  refundFee,
+  settleStakeOnChain,
+  slashStakeOnChain,
+} from "./sui";
 
 /**
  * Independent verification of a submission.
@@ -236,16 +246,37 @@ export async function tally(submissionId: string, revealedId?: string) {
 async function settleStake(submissionId: string) {
   const data = await load();
   const sub = data.submissions.find((s) => s.id === submissionId);
-  const approval = data.approvals.find((a) => a.id === sub?.approvalId);
-  if (!sub || !approval?.stake || approval.stake.settled || !adminReady()) return;
+  if (!sub?.stake || sub.stake.settled || !optiOnReady()) return;
   if (sub.status !== "verified" && sub.status !== "rejected") return;
-  const refund = sub.status === "verified";
+  const { challengeId, onchainId } = sub.stake;
   try {
-    const res = refund ? await refundStake(approval.stake.payer, approval.stake.amountMist) : null;
-    await update((d) => {
-      const a = d.approvals.find((x) => x.id === approval.id);
-      if (a?.stake) a.stake.settled = { outcome: refund ? "refunded" : "slashed", digest: res?.digest ?? null, at: new Date().toISOString() };
-    });
+    if (sub.status === "verified") {
+      // The people who agreed (the platform's own verifier isn't paid from here);
+      // the contract pays them only when at least 3 did.
+      const agreed = data.assignments
+        .filter((a) => a.submissionId === sub.id && a.sessionId !== PLATFORM_SESSION && a.report?.compatible && a.report.pass)
+        .map((a) => data.payouts[a.sessionId])
+        .filter((p): p is string => !!p);
+      const verifiers = [...new Set(agreed)];
+      // #1 on-chain when it beats every other verified kernel on this track.
+      const best = Math.max(
+        0,
+        ...data.submissions.filter((s) => s.trackId === sub.trackId && s.status === "verified" && s.id !== sub.id).map((s) => s.speedup ?? 0),
+      );
+      const leader = (sub.speedup ?? 0) > best;
+      const paid = verifiers.length >= 3 ? verifiers : [];
+      const res = await settleStakeOnChain({ challengeId, onchainId, verifiers: paid, makeLeader: leader });
+      await update((d) => {
+        const s = d.submissions.find((x) => x.id === sub.id);
+        if (s?.stake) s.stake.settled = { outcome: "refunded", digest: res.digest, leader, verifiersPaid: paid.length, at: new Date().toISOString() };
+      });
+    } else {
+      const res = await slashStakeOnChain({ challengeId, onchainId });
+      await update((d) => {
+        const s = d.submissions.find((x) => x.id === sub.id);
+        if (s?.stake) s.stake.settled = { outcome: "slashed", digest: res.digest, leader: false, verifiersPaid: 0, at: new Date().toISOString() };
+      });
+    }
   } catch (e) {
     console.warn("[verify] stake settlement failed:", e instanceof Error ? e.message : e);
   }
@@ -294,8 +325,7 @@ export async function finishSettled() {
   for (const s of data.submissions) {
     if (s.status !== "verified" && s.status !== "rejected") continue;
     if (s.retryAt && now - Date.parse(s.retryAt) < 60_000) continue;
-    const approval = data.approvals.find((a) => a.id === s.approvalId);
-    const needsStake = !!approval?.stake && !approval.stake.settled;
+    const needsStake = !!s.stake && !s.stake.settled;
     const needsListing = s.status === "verified" && !s.listing;
     if (!needsStake && !needsListing) continue;
     await update((d) => {

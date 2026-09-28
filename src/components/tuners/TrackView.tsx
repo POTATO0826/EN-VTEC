@@ -14,7 +14,7 @@ import { postJson } from "@/components/world/WorldIdButton";
 import type { Track } from "@/lib/catalog";
 import { useSessionId, useSessionStatus } from "@/lib/session";
 import { useOrigin } from "@/lib/use-origin";
-import { explorerTx, feeTx, stakeTx, SUI, suiReady } from "@/lib/sui-tx";
+import { explorerTx, feeTx, OPTI_ON, stakeTx, SUI, suiReady } from "@/lib/sui-tx";
 
 type Row = {
   id: string;
@@ -35,8 +35,10 @@ type TrackData = {
   rows: Row[];
   builds: { folder: string; name: string }[];
   verified: boolean;
-  /** Where this session is: World ID done and fee unpaid, or ready to run (by World ID + fee, or by a stake). */
-  approval: { id: string; stage: "needs_fee" | "ready"; mode?: "worldid" | "stake" } | null;
+  /** With World ID: where this session is in "pay the fee -> run". */
+  approval: { id: string; stage: "needs_fee" | "ready" } | null;
+  /** Without World ID: the uploaded kernel that still needs its stake. */
+  awaitingStake: { id: string; buildName: string; buildSha256: string } | null;
 };
 
 function useTrack(trackId: string, sessionId: string | null) {
@@ -69,7 +71,7 @@ export default function TrackView({ track }: { track: Track }) {
     if (seen.current) {
       for (const row of mine) {
         const before = seen.current.get(row.id);
-        if (before === undefined) {
+        if (before === undefined ? row.status !== "awaiting_stake" : before === "awaiting_stake" && row.status !== "awaiting_stake") {
           setRunning(row.id);
         } else if (before !== row.status && (row.status === "verified" || row.status === "rejected")) {
           const view = { label: "View result", onClick: () => setRunning(row.id) };
@@ -105,9 +107,11 @@ export default function TrackView({ track }: { track: Track }) {
   const paid = data?.approval?.stage === "ready";
 
   // With World ID (verified once, at Get started): agent -> process fee -> run.
-  // Without:  agent -> stake -> run. The stake comes back if the kernel
-  // verifies (correct, at least 0.1% faster); otherwise it's slashed.
-  const done = [hasAgent, paid, false];
+  // Without: agent -> run (the kernel uploads, awaiting its stake) -> stake it
+  // in the Opti-On contract with its code hash -> verification. The stake
+  // comes back if the kernel verifies; otherwise it's slashed.
+  const awaiting = data?.awaitingStake ?? null;
+  const done = verified ? [hasAgent, paid, false] : [hasAgent, !!awaiting, false];
   const state = (n: number): StepState => {
     const first = done.indexOf(false) + 1;
     return done[n - 1] ? "done" : first === n ? "active" : "locked";
@@ -139,7 +143,7 @@ export default function TrackView({ track }: { track: Track }) {
               <p className="mb-4 text-sm text-muted-foreground">
                 {verified
                   ? "Verified with World ID at Get started, so there's no second check: you pay the process fee per submission."
-                  : `No World ID: you stake ${SUI.stakeSui} SUI per kernel instead. It comes back if the kernel verifies.`}{" "}
+                  : `No World ID: your agent runs the kernel first, then you stake ${SUI.stakeSui} SUI on it in the Opti-On contract. It comes back if the kernel verifies.`}{" "}
                 {hasAgent ? "Agent connected." : "Your agent isn't connected yet."}
               </p>
               <Button asChild variant="outline" className="rounded-full">
@@ -148,22 +152,39 @@ export default function TrackView({ track }: { track: Track }) {
             </Step>
 
             {verified ? (
-              <Step n={2} title={`Pay the ${SUI.feeSui} SUI process fee`} state={state(2)} summary={`${SUI.feeSui} SUI paid`}>
-                {sessionId ? <FeePayment sessionId={sessionId} trackId={track.id} onDone={refresh} /> : null}
-              </Step>
+              <>
+                <Step n={2} title={`Pay the ${SUI.feeSui} SUI process fee`} state={state(2)} summary={`${SUI.feeSui} SUI paid`}>
+                  {sessionId ? <FeePayment sessionId={sessionId} trackId={track.id} onDone={refresh} /> : null}
+                </Step>
+                <Step n={3} title="Run it with your agent" state={state(3)}>
+                  <BuildPicker trackId={track.id} builds={data?.builds ?? []} code={status?.agent?.code ?? "<CODE>"} />
+                </Step>
+              </>
             ) : (
-              <Step n={2} title={`Stake ${SUI.stakeSui} SUI on this kernel`} state={state(2)} summary={`${SUI.stakeSui} SUI staked`}>
-                {sessionId ? <StakePayment sessionId={sessionId} trackId={track.id} onDone={refresh} /> : null}
-              </Step>
+              <>
+                <Step
+                  n={2}
+                  title="Run it with your agent"
+                  state={state(2)}
+                  summary={awaiting ? `${awaiting.buildName} uploaded · sha256 ${awaiting.buildSha256.slice(0, 12)}…` : null}
+                >
+                  <BuildPicker trackId={track.id} builds={data?.builds ?? []} code={status?.agent?.code ?? "<CODE>"} />
+                </Step>
+                <Step n={3} title={`Stake ${SUI.stakeSui} SUI on your kernel`} state={state(3)}>
+                  {sessionId && awaiting ? (
+                    <StakePayment
+                      sessionId={sessionId}
+                      trackId={track.id}
+                      kernel={awaiting}
+                      onDone={(id) => {
+                        refresh();
+                        setRunning(id);
+                      }}
+                    />
+                  ) : null}
+                </Step>
+              </>
             )}
-
-            <Step n={3} title="Run it with your agent" state={state(3)}>
-              <BuildPicker
-                trackId={track.id}
-                builds={data?.builds ?? []}
-                code={status?.agent?.code ?? "<CODE>"}
-              />
-            </Step>
           </section>
 
         </div>
@@ -437,35 +458,43 @@ function Explainer({ icon, children }: { icon: React.ReactNode; children: React.
   );
 }
 
-/** Without World ID: the stake, sent from Slush to the platform wallet and checked on-chain. */
-function StakePayment({ sessionId, trackId, onDone }: { sessionId: string; trackId: string; onDone: () => void }) {
+/**
+ * Without World ID: stake on the uploaded kernel in the Opti-On contract
+ * (market::submit with its code hash). The server reads the Submitted event
+ * from Sui, then verification starts.
+ */
+function StakePayment({
+  sessionId,
+  trackId,
+  kernel,
+  onDone,
+}: {
+  sessionId: string;
+  trackId: string;
+  kernel: { id: string; buildName: string; buildSha256: string };
+  onDone: (submissionId: string) => void;
+}) {
   const account = useCurrentAccount();
   const dAppKit = useDAppKit();
   const [busy, setBusy] = React.useState(false);
+  const challenge = OPTI_ON.challenges[trackId];
 
   const stake = async () => {
     setBusy(true);
     const id = toast.loading("Preparing the stake…");
+    // Already staked but the check failed (e.g. timed out): check that same
+    // transaction again rather than asking for a second stake.
+    const key = `opti-om.stake.${kernel.id}`;
     try {
-      const start = await postJson("/api/stake/start", { sessionId, trackId });
-      const started = await start.json();
-      if (!start.ok) throw new Error(started.detail ?? started.error);
-      if (started.staked) {
-        onDone();
-        return;
-      }
-      // Already paid for this approval but the check failed (e.g. timed out):
-      // check that same payment again rather than asking for a second one.
-      const key = `opti-om.stake.${started.approvalId}`;
       let digest = "";
       try {
         digest = localStorage.getItem(key) ?? "";
       } catch {
-        /* no storage: pay as usual */
+        /* no storage: stake as usual */
       }
       if (!digest) {
         toast.loading("Confirm the stake in Slush…", { id });
-        const tx = await dAppKit.signAndExecuteTransaction({ transaction: stakeTx(started.to) });
+        const tx = await dAppKit.signAndExecuteTransaction({ transaction: stakeTx(challenge!, kernel.buildSha256) });
         if (!tx.Transaction) throw new Error(tx.FailedTransaction?.status.error?.message ?? "Transaction failed.");
         digest = tx.Transaction.digest;
         try {
@@ -476,21 +505,21 @@ function StakePayment({ sessionId, trackId, onDone }: { sessionId: string; track
       }
 
       toast.loading("Checking the stake on Sui…", { id });
-      const check = await postJson("/api/stake/confirm", { approvalId: started.approvalId, sessionId, address: account!.address, digest });
+      const check = await postJson("/api/stake/confirm", { submissionId: kernel.id, sessionId, address: account!.address, digest });
       const result = await check.json();
-      if (!check.ok) throw new Error(`${result.detail ?? result.error} Press Stake again to re-check the same payment.`);
+      if (!check.ok) throw new Error(`${result.detail ?? result.error} Press Stake again to re-check the same transaction.`);
       try {
         localStorage.removeItem(key);
       } catch {
         /* not fatal */
       }
 
-      toast.success(`${SUI.stakeSui} SUI staked`, {
+      toast.success("Stake locked in the Opti-On contract", {
         id,
-        description: "Returned to this wallet if the kernel verifies.",
+        description: "Verification has started. The stake comes back to this wallet if the kernel verifies.",
         action: { label: "View", onClick: () => window.open(explorerTx(digest), "_blank") },
       });
-      onDone();
+      onDone(kernel.id);
     } catch (e) {
       toast.error("Stake didn't go through", { id, description: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -501,12 +530,14 @@ function StakePayment({ sessionId, trackId, onDone }: { sessionId: string; track
   return (
     <div className="flex flex-col gap-4">
       <Explainer icon={<CoinsIcon />}>
-        No World ID, so your stake is what keeps the pool honest. {SUI.stakeSui} SUI goes to the platform wallet. If
-        verifiers find the kernel correct and clearly faster than the baseline (at least 0.1%, and beyond their
-        run-to-run noise), it&apos;s published and the stake comes back to this wallet. If not, the stake is slashed.
+        Your agent uploaded <span className="text-foreground">{kernel.buildName}</span> (sha256{" "}
+        <span className="vtec-num">{kernel.buildSha256.slice(0, 12)}…</span>). Stake {SUI.stakeSui} SUI on it: it&apos;s
+        locked in the Opti-On contract on Sui together with this code hash. If verifiers find it correct and at least as
+        fast as you claimed, one transaction gives the stake back (and makes it #1 if it&apos;s the best). If not, it&apos;s
+        slashed.
       </Explainer>
-      {!suiReady() ? (
-        <p className="text-sm text-[var(--warning)]">The Sui contract isn&apos;t configured yet (see .env.local).</p>
+      {!challenge ? (
+        <p className="text-sm text-[var(--warning)]">Staking isn&apos;t set up for this track (no Opti-On challenge).</p>
       ) : account ? (
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={stake} disabled={busy} className="w-fit rounded-full px-5">

@@ -1,0 +1,6 @@
+[package]
+name = "opti_on"
+edition = "2024"
+
+[addresses]
+opti_on = "0x0"

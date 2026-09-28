@@ -1,52 +1,56 @@
 import { load, update } from "@/lib/server/store";
-import { checkStake } from "@/lib/server/sui";
+import { checkOnChainStake, optiOn, sui } from "@/lib/server/sui";
+import { assignPending } from "@/lib/server/verification";
 
-// The tuner sent the stake with Slush and gives us the digest. We read the
-// transaction from Sui ourselves: it must come from that wallet and move the
-// full stake into the platform wallet.
+// Without World ID: the tuner staked on their uploaded kernel in the Opti-On
+// contract (market::submit, with the kernel's code hash) and gives us the
+// digest. We read the Submitted event from Sui ourselves: right challenge,
+// right wallet, right code hash. Then verification starts.
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
-    approvalId?: string;
+    submissionId?: string;
     sessionId?: string;
     address?: string;
     digest?: string;
   } | null;
-  if (!body?.approvalId || !body.sessionId || !body.digest || !/^0x[0-9a-fA-F]{64}$/.test(body.address ?? "")) {
+  if (!body?.submissionId || !body.sessionId || !body.digest || !/^0x[0-9a-fA-F]{64}$/.test(body.address ?? "")) {
     return Response.json({ error: "missing_fields" }, { status: 400 });
   }
 
   const data = await load();
-  const approval = data.approvals.find(
-    (a) => a.id === body.approvalId && a.sessionId === body.sessionId && a.kind === "stake",
-  );
-  if (!approval) return Response.json({ error: "unknown_approval" }, { status: 404 });
-  if (approval.stake) return Response.json({ ok: true });
-  // A stake transaction backs one approval: otherwise one payment could be
-  // refunded once per kernel it was reused for.
-  if (data.approvals.some((a) => a.stake?.digest === body.digest)) {
+  const sub = data.submissions.find((s) => s.id === body.submissionId && s.sessionId === body.sessionId);
+  if (!sub) return Response.json({ error: "unknown_submission" }, { status: 404 });
+  if (sub.stake) return Response.json({ ok: true });
+  if (sub.status !== "awaiting_stake") {
+    return Response.json({ error: "not_awaiting_stake", detail: "This kernel doesn't need a stake." }, { status: 409 });
+  }
+  const challengeId = optiOn.challenges[sub.trackId];
+  if (!challengeId) return Response.json({ error: "stake_unavailable", detail: "No Opti-On challenge for this track." }, { status: 503 });
+  if (data.submissions.some((s) => s.stake?.digest === body.digest)) {
     return Response.json({ error: "stake_reused", detail: "That stake transaction is already used." }, { status: 409 });
   }
 
-  let stake;
+  let staked;
   try {
-    stake = await checkStake(body.digest, body.address!);
+    staked = await checkOnChainStake(body.digest, { tuner: body.address!, challengeId, codeHashHex: sub.buildSha256 });
   } catch (e) {
     return Response.json({ error: "stake_not_found", detail: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }
 
   const taken = await update((d) => {
-    if (d.approvals.some((x) => x.stake?.digest === body.digest)) return true;
-    const a = d.approvals.find((x) => x.id === approval.id);
-    if (a) {
-      a.status = "approved";
-      a.stake = { digest: body.digest!, ...stake };
+    if (d.submissions.some((s) => s.stake && (s.stake.digest === body.digest || s.stake.onchainId === staked.onchainId))) return true;
+    const s = d.submissions.find((x) => x.id === sub.id);
+    if (s && s.status === "awaiting_stake") {
+      s.stake = { ...staked, digest: body.digest!, challengeId, amountMist: String(sui.stakeMist) };
+      s.status = "pending";
+      // Where license income is paid.
+      s.payout ??= staked.tuner;
+      d.payouts[body.sessionId!] ??= staked.tuner;
     }
-    // Where the stake goes back to, and where license income is paid.
-    d.payouts[body.sessionId!] ??= body.address!.toLowerCase();
     return false;
   });
-  if (taken) {
-    return Response.json({ error: "stake_reused", detail: "That stake transaction is already used." }, { status: 409 });
-  }
-  return Response.json({ ok: true });
+  if (taken) return Response.json({ error: "stake_reused", detail: "That stake is already used." }, { status: 409 });
+
+  assignPending().catch((e) => console.warn("[verify] assign failed:", e));
+  return Response.json({ ok: true, onchainId: staked.onchainId });
 }

@@ -34,27 +34,17 @@ export type Approval = {
   id: string;
   sessionId: string;
   trackId: string;
-  /** "worldid": World ID approval + process fee. "stake": no World ID, a stake instead. */
-  kind: "worldid" | "stake";
+  kind: "worldid";
   action: string;
   status: "pending" | "approved";
   nullifier: string | null;
   /** The process fee, paid after the World ID approval. */
   fee: { digest: string; payer: string; amountMist: string } | null;
-  /**
-   * Without World ID: the stake sent to the platform wallet. Returned if the
-   * kernel verifies (correct and at least 0.1% faster), slashed otherwise.
-   */
-  stake?: {
-    digest: string;
-    payer: string;
-    amountMist: string;
-    settled?: { outcome: "refunded" | "slashed"; digest: string | null; at: string };
-  } | null;
   at: string;
 };
 
-export type SubmissionStatus = "pending" | "verifying" | "verified" | "rejected";
+/** awaiting_stake: submitted without World ID; verification starts once it's staked on-chain. */
+export type SubmissionStatus = "awaiting_stake" | "pending" | "verifying" | "verified" | "rejected";
 
 export type BuildRequirements = {
   /** Minimum NVIDIA driver, e.g. "570". */
@@ -87,6 +77,20 @@ export type Submission = {
   feeSettlement?: { digest: string; recipients: string[] } | null;
   /** The tuner's speedup claim, which verifiers must meet. */
   claim?: Claim | null;
+  /**
+   * Without World ID: the stake locked in the Opti-On contract with this
+   * kernel's code hash. One settle transaction returns it (verified) or
+   * slash_stake keeps it (rejected).
+   */
+  stake?: {
+    /** The submission id inside the contract. */
+    onchainId: string;
+    digest: string;
+    tuner: string;
+    challengeId: string;
+    amountMist: string;
+    settled?: { outcome: "refunded" | "slashed"; digest: string | null; leader: boolean; verifiersPaid: number; at: string };
+  } | null;
   /** What the tuner's agent printed while building and submitting it: the auto-tune run, hashes, timing. */
   tuneLog?: string[];
   /** On sale once verified: the shared Listing on Sui. */

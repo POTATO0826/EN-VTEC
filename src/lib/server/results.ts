@@ -210,7 +210,8 @@ function entryOf(data: Data, sub: Submission, label: string, sessionId: string |
     runs,
     tolerance: valid[0]?.report.tolerance ?? toleranceOf(sub.trackId),
     detail: {
-      status: sub.status,
+      // Awaiting its stake is still "not verified yet" to anyone reading results.
+      status: sub.status === "awaiting_stake" ? "pending" : sub.status,
       submittedAt: sub.at,
       buildSha256: sub.buildSha256,
       gpu: sub.gpu,
@@ -219,6 +220,20 @@ function entryOf(data: Data, sub: Submission, label: string, sessionId: string |
         ? {
             worldId: approval.kind === "worldid" && !!approval.nullifier,
             fee: approval.fee ? { digest: approval.fee.digest, amountSui: feeSui! } : null,
+          }
+        : null,
+      stake: sub.stake
+        ? {
+            amountSui: Number(sub.stake.amountMist) / 1e9,
+            digest: sub.stake.digest,
+            settled: sub.stake.settled
+              ? {
+                  outcome: sub.stake.settled.outcome,
+                  digest: sub.stake.settled.digest,
+                  leader: sub.stake.settled.leader,
+                  verifiersPaid: sub.stake.settled.verifiersPaid,
+                }
+              : null,
           }
         : null,
       draw: sub.draw ? { source: sub.draw.source } : null,

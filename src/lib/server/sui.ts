@@ -48,6 +48,29 @@ export const sui = {
   ),
 };
 
+/**
+ * The Opti-On contract (move/opti_on): stakes are locked in it with the
+ * kernel's code hash, and the backend (holder of its AdminCap) returns,
+ * slashes, pays verifiers and sets #1. One Challenge per track.
+ */
+export const optiOn = {
+  packageId: process.env.NEXT_PUBLIC_OPTI_ON_PACKAGE_ID ?? "",
+  adminCapId: process.env.OPTI_ON_ADMIN_CAP_ID ?? "",
+  challenges: (() => {
+    try {
+      return JSON.parse(process.env.NEXT_PUBLIC_OPTI_ON_CHALLENGES ?? "{}") as Record<string, string>;
+    } catch {
+      return {} as Record<string, string>;
+    }
+  })(),
+  /** Split between the verifiers who agreed, when at least 3 did (the contract's minimum). */
+  verifierPayMist: 3_000_000n,
+};
+
+export function optiOnReady(trackId?: string) {
+  return !!(optiOn.packageId && optiOn.adminCapId && sui.adminKey && (!trackId || optiOn.challenges[trackId]));
+}
+
 export function adminReady() {
   return !!(
     sui.adminCapId &&
@@ -114,6 +137,14 @@ export function deployedMarket() {
     });
   return marketAbi;
 }
+
+/** Opti-On's Submitted event: a stake locked with a kernel's code hash. */
+const Submitted = bcs.struct("Submitted", {
+  challenge: bcs.Address,
+  submission: bcs.Address,
+  tuner: bcs.Address,
+  code_hash: bcs.vector(bcs.u8()),
+});
 
 const Challenge = bcs.struct("Challenge", {
   id: bcs.Address,
@@ -320,35 +351,60 @@ export function distributeFee(key: string, recipients: string[]) {
 }
 
 /**
- * A stake: this transaction, sent by `payer`, moved at least the stake in SUI
- * into the platform wallet. Read from the chain, never taken from the browser.
+ * A stake in the Opti-On contract: this transaction called market::submit on
+ * the track's challenge, from `tuner`, with exactly this kernel's code hash.
+ * (The contract itself enforces the stake amount.) Read from the chain,
+ * never taken from the browser.
  */
-export async function checkStake(digest: string, payer: string) {
-  const res = await client.waitForTransaction({
-    digest,
-    include: { balanceChanges: true, transaction: true },
-    timeout: 30_000,
-  });
-  if (!res.Transaction?.status.success)
-    throw new Error("Transaction failed on-chain.");
-  const sender = normalizeSuiAddress(res.Transaction.transaction.sender ?? "0x0");
-  if (sender !== normalizeSuiAddress(payer))
-    throw new Error("That transaction was sent from a different wallet.");
-  const platform = normalizeSuiAddress(adminAddress());
-  const received = res.Transaction.balanceChanges
-    .filter((c) => c.coinType.endsWith("::sui::SUI") && normalizeSuiAddress(c.address) === platform)
-    .reduce((n, c) => n + BigInt(c.amount), 0n);
-  if (received < sui.stakeMist)
-    throw new Error(
-      `The platform wallet received ${received} MIST; the stake is ${sui.stakeMist}.`,
-    );
-  return { payer: sender, amountMist: String(received) };
+export async function checkOnChainStake(
+  digest: string,
+  expected: { tuner: string; challengeId: string; codeHashHex: string },
+) {
+  const events = await eventsOf(digest);
+  const ev = events
+    .filter((e) => e.eventType === `${optiOn.packageId}::market::Submitted`)
+    .map((e) => Submitted.parse(e.bcs))[0];
+  if (!ev) throw new Error("That transaction didn't stake on the Opti-On contract.");
+  if (normalizeSuiAddress(ev.challenge) !== normalizeSuiAddress(expected.challengeId))
+    throw new Error("That stake is for a different challenge.");
+  if (normalizeSuiAddress(ev.tuner) !== normalizeSuiAddress(expected.tuner))
+    throw new Error("That stake was sent from a different wallet.");
+  if (Buffer.from(ev.code_hash).toString("hex") !== expected.codeHashHex.toLowerCase())
+    throw new Error("That stake is for a different kernel (code hash).");
+  return { onchainId: normalizeSuiAddress(ev.submission), tuner: normalizeSuiAddress(ev.tuner) };
 }
 
-/** The staked kernel verified: the platform wallet sends the stake back. */
-export function refundStake(to: string, amountMist: string) {
+/**
+ * The settle transaction: in ONE transaction, return the tuner's stake, pay
+ * the verifiers who agreed (only when there are at least 3, the contract's
+ * minimum) and make the kernel #1 (when it beats the current one). If any
+ * step aborts, none happen.
+ */
+export function settleStakeOnChain(input: { challengeId: string; onchainId: string; verifiers: string[]; makeLeader: boolean }) {
   return run((tx) => {
-    tx.transferObjects([tx.splitCoins(tx.gas, [BigInt(amountMist)])[0]], to);
+    const cap = tx.object(optiOn.adminCapId);
+    const ch = tx.object(input.challengeId);
+    tx.moveCall({ target: `${optiOn.packageId}::market::refund_stake`, arguments: [cap, ch, tx.pure.id(input.onchainId)] });
+    if (input.verifiers.length >= 3) {
+      const [pay] = tx.splitCoins(tx.gas, [optiOn.verifierPayMist]);
+      tx.moveCall({
+        target: `${optiOn.packageId}::market::pay_verifiers`,
+        arguments: [cap, pay, tx.pure.vector("address", input.verifiers)],
+      });
+    }
+    if (input.makeLeader) {
+      tx.moveCall({ target: `${optiOn.packageId}::market::set_leader`, arguments: [cap, ch, tx.pure.id(input.onchainId)] });
+    }
+  });
+}
+
+/** The kernel failed: its stake goes to Opti-On's fees inside the contract. */
+export function slashStakeOnChain(input: { challengeId: string; onchainId: string }) {
+  return run((tx) => {
+    tx.moveCall({
+      target: `${optiOn.packageId}::market::slash_stake`,
+      arguments: [tx.object(optiOn.adminCapId), tx.object(input.challengeId), tx.pure.id(input.onchainId)],
+    });
   });
 }
 

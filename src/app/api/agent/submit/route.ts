@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { findTrack } from "@/lib/catalog";
 import { saveBuild, update, type BuildRequirements, type Claim } from "@/lib/server/store";
+import { optiOnReady, sui } from "@/lib/server/sui";
 import { assignPending } from "@/lib/server/verification";
 
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -29,8 +30,10 @@ function hashFiles(files: Record<string, string>) {
 
 // Called by the local agent after it ran a build. The submission is recorded
 // as PENDING: it only reaches the ranking once independent verifiers agree.
-// Needs an approval for this session and track, spent once: either a World ID
-// approval with its process fee paid, or (without World ID) a stake.
+// With World ID: needs an approval for this session and track with its
+// process fee paid, spent once. Without World ID: no approval; the kernel
+// waits ("awaiting_stake") until its tuner stakes on it in the Opti-On
+// contract with this code hash, then verification starts.
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     code?: string;
@@ -76,26 +79,31 @@ export async function POST(request: Request) {
     const agent = data.agents.find((a) => a.code === code && a.sessionId);
     if (!agent?.sessionId) return { error: "unknown_code" as const };
 
-    const used = new Set(data.submissions.map((s) => s.approvalId));
-    const open = data.approvals.filter(
-      (a) =>
-        a.sessionId === agent.sessionId &&
-        a.trackId === track.id &&
-        a.status === "approved" &&
-        !used.has(a.id),
-    );
-    if (!open.length) return { error: "not_approved" as const };
-    // Spend one that's paid (fee, or stake without World ID); an unpaid one
-    // next to it must not hide it.
-    const approval = open.find((a) => (a.kind === "stake" ? !!a.stake : !!a.fee));
-    if (!approval) return { error: "fee_unpaid" as const };
+    const seated = data.seats.some((s) => s.sessionId === agent.sessionId);
+    let approval: (typeof data.approvals)[number] | null = null;
+    if (seated) {
+      const used = new Set(data.submissions.map((s) => s.approvalId));
+      const open = data.approvals.filter(
+        (a) =>
+          a.sessionId === agent.sessionId &&
+          a.trackId === track.id &&
+          a.status === "approved" &&
+          !used.has(a.id),
+      );
+      if (!open.length) return { error: "not_approved" as const };
+      // Spend one that's paid; an unpaid one next to it must not hide it.
+      approval = open.find((a) => !!a.fee) ?? null;
+      if (!approval) return { error: "fee_unpaid" as const };
+    } else if (!optiOnReady(track.id)) {
+      return { error: "stake_unavailable" as const };
+    }
 
     const id = `sub_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     data.submissions.push({
       id,
       sessionId: agent.sessionId,
       trackId: track.id,
-      approvalId: approval.id,
+      approvalId: approval?.id ?? null,
       buildName: String(body.buildName ?? "build").slice(0, 80),
       buildSha256: body.buildSha256!,
       specSha256,
@@ -106,27 +114,37 @@ export async function POST(request: Request) {
       // Shown on the verification page; bounded so a client can't store a novel.
       tuneLog: Array.isArray(body.log) ? body.log.slice(0, 60).map((l) => String(l).slice(0, 200)) : undefined,
       claim: claimOf(body.claim),
-      status: "pending",
+      status: seated ? "pending" : "awaiting_stake",
       draw: null,
       speedup: null,
       payout: data.payouts[agent.sessionId] ?? null,
       at: new Date().toISOString(),
       settledAt: null,
     });
-    return { id };
+    return { id, staked: seated };
   });
 
   if ("error" in outcome) {
     const detail =
       outcome.error === "not_approved"
-        ? "Approve this submission on the track page first (World ID, or a stake)."
+        ? "Pay the process fee on the track page first."
         : outcome.error === "fee_unpaid"
-          ? "Pay the process fee or the stake on the track page first."
+          ? "Pay the process fee on the track page first."
+          : outcome.error === "stake_unavailable"
+            ? "Staking isn't set up for this track (the Opti-On contract ids are missing)."
           : "Pair this agent from the Get started page first.";
-    return Response.json({ error: outcome.error, detail }, { status: outcome.error === "unknown_code" ? 404 : 403 });
+    return Response.json({ error: outcome.error, detail }, { status: outcome.error === "unknown_code" ? 404 : outcome.error === "stake_unavailable" ? 503 : 403 });
   }
 
   await saveBuild(body.buildSha256!, { name: body.buildName ?? "build", files: body.files });
+  if (!outcome.staked) {
+    return Response.json({
+      ok: true,
+      id: outcome.id,
+      status: "awaiting_stake",
+      detail: `No World ID, so it waits for your stake: stake ${Number(sui.stakeMist) / 1e9} SUI on it on the track page to start verification.`,
+    });
+  }
   // Drawing verifiers can wait on a Sui transaction; don't hold the agent up.
   assignPending().catch((e) => console.warn("[verify] assign failed:", e));
   return Response.json({ ok: true, id: outcome.id, status: "pending" });

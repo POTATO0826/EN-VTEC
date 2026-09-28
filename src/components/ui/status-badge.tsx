@@ -1,6 +1,7 @@
 import { cn } from "cn";
 
 const STYLES = {
+  awaiting_stake: { label: "awaiting stake", dot: "bg-[var(--info)]", text: "text-[var(--info)]" },
   pending: { label: "pending", dot: "bg-muted-foreground", text: "text-muted-foreground" },
   verifying: { label: "verifying", dot: "bg-[var(--warning)] animate-pulse", text: "text-[var(--warning)]" },
   verified: { label: "verified", dot: "bg-[var(--success)]", text: "text-[var(--success)]" },
